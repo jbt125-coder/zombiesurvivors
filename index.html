@@ -108,36 +108,36 @@ var WORLD_PROPS=[];
 
 function buildGround(themeIdx){
 var t=THEMES[themeIdx%THEMES.length];
-var off=document.createElement(‘canvas’);off.width=WW;off.height=WH;
+// Build a 1600x1200 tile (repeated across the world) instead of a 6400x4800 canvas
+var TW=1600,TH=1200;
+var off=document.createElement(‘canvas’);off.width=TW;off.height=TH;
 var ox=off.getContext(‘2d’);
-ox.fillStyle=t.base;ox.fillRect(0,0,WW,WH);
+ox.fillStyle=t.base;ox.fillRect(0,0,TW,TH);
 var seed=themeIdx*1234;
 function sr(){seed=(seed*1664525+1013904223)&0xffffffff;return(seed>>>0)/0xffffffff;}
-// Soft grass-tone blobs — darker, more saturated
-for(var b=0;b<120;b++){
-var bx=sr()*WW,by=sr()*WH,br=80+sr()*180;
+// Soft grass-tone blobs
+for(var b=0;b<40;b++){
+var bx=sr()*TW,by=sr()*TH,br=80+sr()*160;
 var grd=ox.createRadialGradient(bx,by,0,bx,by,br);
 grd.addColorStop(0,t.patchColor);grd.addColorStop(1,‘rgba(0,0,0,0)’);
 ox.globalAlpha=0.7+sr()*0.25;ox.fillStyle=grd;
 ox.beginPath();ox.arc(bx,by,br,0,Math.PI*2);ox.fill();
 }
 ox.globalAlpha=1;
-// Kidney-shaped dirt patches
-for(var d=0;d<28;d++){
-var dx=sr()*WW,dy=sr()*WH,dw=60+sr()*140,dh=40+sr()*90,tilt=(sr()-0.5)*1.2;
+// Kidney dirt patches
+for(var d=0;d<10;d++){
+var dx=sr()*TW,dy=sr()*TH,dw=60+sr()*130,dh=40+sr()*80,tilt=(sr()-0.5)*1.2;
 ox.save();ox.translate(dx,dy);ox.rotate(tilt);
-ox.fillStyle=t.dirtColor;ox.globalAlpha=0.65+sr()*0.3;
+ox.fillStyle=t.dirtColor;ox.globalAlpha=0.6+sr()*0.3;
 ox.beginPath();ox.ellipse(0,0,dw*0.6,dh*0.7,0,0,Math.PI*2);ox.fill();
 ox.beginPath();ox.ellipse(dw*0.35,dh*0.2,dw*0.45,dh*0.55,0.4,0,Math.PI*2);ox.fill();
 ox.globalAlpha=1;ox.restore();
 }
-// Fine grass blades — darker and denser
-ox.globalAlpha=0.7;
-for(var g2=0;g2<5000;g2++){
-var gx=sr()*WW,gy=sr()*WH,gh=3+sr()*7;
-// Alternate between two dark shades for texture depth
-ox.strokeStyle=sr()<0.5?t.patchColor:t.dirtColor;
-ox.lineWidth=1;
+// Grass blades
+ox.globalAlpha=0.65;
+for(var g2=0;g2<1500;g2++){
+var gx=sr()*TW,gy=sr()*TH,gh=3+sr()*7;
+ox.strokeStyle=sr()<0.5?t.patchColor:t.dirtColor;ox.lineWidth=1;
 ox.beginPath();ox.moveTo(gx,gy);ox.lineTo(gx+(sr()-0.5)*5,gy-gh);ox.stroke();
 }
 ox.globalAlpha=1;
@@ -1157,7 +1157,17 @@ ctx.clearRect(0,0,VW,VH);
 
 // Ground
 ctx.save();ctx.translate(-Math.floor(G.camX),-Math.floor(G.camY));
-ctx.drawImage(G.groundCanvas,0,0);
+// Tile the ground canvas across the full world
+if(G.groundCanvas){
+var TW=G.groundCanvas.width,TH=G.groundCanvas.height;
+var startCol=Math.floor(G.camX/TW),endCol=Math.ceil((G.camX+VW)/TW);
+var startRow=Math.floor(G.camY/TH),endRow=Math.ceil((G.camY+VH)/TH);
+for(var row=startRow;row<=endRow;row++){
+for(var col=startCol;col<=endCol;col++){
+ctx.drawImage(G.groundCanvas,col*TW,row*TH);
+}
+}
+}
 // Map border
 ctx.shadowColor=‘rgba(255,180,0,0.5)’;ctx.shadowBlur=12;
 ctx.strokeStyle=‘rgba(255,180,0,0.35)’;ctx.lineWidth=8;
@@ -1458,7 +1468,7 @@ requestAnimationFrame(loop);
 // START
 function startGame(){
 cashTierIdx=0;G=makeState();initSoldiers(G);
-G.groundCanvas=buildGround(G.groundTheme);
+// Don’t build ground canvas here — defer to first draw() call to avoid blocking tap response
 buildWorldObjects(G.groundTheme);
 lastTime=performance.now();
 document.getElementById(‘joystickZone’).style.display=‘block’;
@@ -1474,8 +1484,9 @@ var mmc=document.createElement(‘canvas’);mmc.id=‘minimapCanvas’;mmc.widt
 mm.appendChild(mmc);document.body.appendChild(mm);
 })();
 
-canvas.addEventListener(‘click’,function(){if(gameMode===‘title’){unlockAudio();startGame();}});
-canvas.addEventListener(‘touchend’,function(e){if(gameMode===‘title’){e.preventDefault();unlockAudio();startGame();}},{passive:false});
+canvas.addEventListener(‘click’,function(e){if(gameMode===‘title’){unlockAudio();startGame();}});
+canvas.addEventListener(‘touchend’,function(e){e.preventDefault();if(gameMode===‘title’){unlockAudio();startGame();}},{passive:false});
+document.addEventListener(‘keydown’,function(e){if(gameMode===‘title’&&(e.key===’ ’||e.key===‘Enter’)){unlockAudio();startGame();}});
 document.getElementById(‘retryBtn’).addEventListener(‘click’,function(){document.getElementById(‘gameOverScreen’).classList.remove(‘show’);startGame();});
 
 requestAnimationFrame(loop);
