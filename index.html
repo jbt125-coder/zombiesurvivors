@@ -1066,16 +1066,22 @@ updateWorldFire(G,dt,lastTime);
 // Soldier unlock
 for(var ui=1;ui<SOLDIER_UNLOCK.length;ui++)if(G.soldiers.length<ui+1&&G.score>=SOLDIER_UNLOCK[ui])addSoldier(G);
 
-// ZOMBIE SPAWNER — every 1s, 2^(elapsed/1.5) no cap, wave multiplier
+// ZOMBIE SPAWNER — every 1s, capped ramp to prevent crash
+var MAX_ZOMBIES=200;
 G.spawnTick+=dt;
 if(G.spawnTick>=1){
 G.spawnTick-=1;
+var currentTotal=G.zombies.length+G.spawnQueue.length;
+if(currentTotal<MAX_ZOMBIES){
 var elapsed=G.waveTime;
-var count=Math.floor(Math.pow(2,elapsed/1.5));
-count=Math.max(1,Math.round(count*(1+G.wave*0.5)));
+// Linear ramp: 1 at t=0, caps at 25 around t=48s, with gentle wave bonus
+var count=Math.min(25,Math.floor(1+elapsed/2));
+count=Math.max(1,Math.round(count*(1+G.wave*0.15)));
+count=Math.min(count,MAX_ZOMBIES-currentTotal);
 G.spawnBatch=count;
 G.subWave=Math.floor(elapsed)+1;
 spawnZombieBatch(G,count);
+}
 }
 // Process spawn queue
 if(G.spawnQueue.length>0){
