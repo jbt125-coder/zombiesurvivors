@@ -1515,7 +1515,7 @@ function ytExtract(url){
 try{
 var pl=url.match(/[?&]list=([A-Za-z0-9_-]+)/);
 if(pl)return{type:‘playlist’,id:pl[1]};
-var v=url.match(/(?:v=|youtu.be/|embed/)([A-Za-z0-9_-]{11})/);
+var v=url.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/);
 if(v)return{type:‘video’,id:v[1]};
 }catch(e){}
 return null;
