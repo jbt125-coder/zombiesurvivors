@@ -371,7 +371,7 @@ var dx=other.x-obj.x,dy=other.y-obj.y;
 if(Math.sqrt(dx*dx+dy*dy)<80&&Math.random()<0.004){other.burning=true;other.lit=true;other.burnTimer=other.burnLife;}
 }
 for(var zi=g.zombies.length-1;zi>=0;zi--){
-var z=g.zombies[zi];var zdx=z.x-obj.x,zdy=z.y-obj.y;
+var z=g.zombies[zi];if(!z.visible)continue;var zdx=z.x-obj.x,zdy=z.y-obj.y;
 if(Math.sqrt(zdx*zdx+zdy*zdy)<obj.r*2.5){z.hp-=8*dt;z.flash=0.1;if(z.hp<=0)killZombie(g,zi);}
 }
 for(var zi2=0;zi2<g.zombies.length;zi2++){
@@ -384,7 +384,7 @@ for(var pi=0;pi<WORLD_PROPS.length;pi++){
 var p=WORLD_PROPS[pi];if(!p.burning||p.dead)continue;
 p.burnTimer-=dt;
 for(var zi3=g.zombies.length-1;zi3>=0;zi3--){
-var z3=g.zombies[zi3];var pdx=z3.x-p.x,pdy=z3.y-p.y;
+var z3=g.zombies[zi3];if(!z3.visible)continue;var pdx=z3.x-p.x,pdy=z3.y-p.y;
 if(Math.sqrt(pdx*pdx+pdy*pdy)<(p.type==='car'?35:20)){z3.hp-=12*dt;z3.flash=0.1;if(z3.hp<=0)killZombie(g,zi3);}
 }
 for(var zi4=0;zi4<g.zombies.length;zi4++){
@@ -397,7 +397,7 @@ if(p.type==='car'){
 spawnParts(g,p.x,p.y,'#ff6600',30);spawnParts(g,p.x,p.y,'#ffff00',20);
 addFloat(g,p.x,p.y,'BOOM!','#ff8800');
 for(var zi5=g.zombies.length-1;zi5>=0;zi5--){
-var z5=g.zombies[zi5];var ex=z5.x-p.x,ey=z5.y-p.y;
+var z5=g.zombies[zi5];if(!z5.visible)continue;var ex=z5.x-p.x,ey=z5.y-p.y;
 if(Math.sqrt(ex*ex+ey*ey)<120){z5.hp-=150;z5.flash=0.2;if(z5.hp<=0)killZombie(g,zi5);}
 }
 g.flash=0.35;g.flashColor='#ff8800';sfxKillAll();
@@ -503,10 +503,15 @@ var SOLDIER_UNLOCK=[0,1000,2500,5000,8000,12000,17000,23000,30000,38000];
 var CASH_TIERS=[1000,3000,7000,13000,21000,31000,43000,57000];
 var cashTierIdx=0;
 
+// WEAPON DEFINITIONS — one active at a time, replaces previous
+var ALL_WEAPONS=[
+{id:'shotgun',      icon:'🟡', name:'SHOTGUN',      desc:'Slow pump-action\nyellow spread shot'},
+{id:'flamethrower', icon:'🔥', name:'FLAMETHROWER', desc:'Close-range fire\nspray cone'},
+{id:'machinegun',   icon:'🔫', name:'MACHINE GUN',  desc:'Rapid fire\npink burst stream'},
+{id:'laser',        icon:'⚡', name:'LASER BEAM',   desc:'Piercing beam\nhigh damage'},
+];
+// NON-WEAPON UPGRADES — these still stack
 var ALL_UPGRADES=[
-{id:'flamethrower', icon:'🔥', name:'FLAMETHROWER', desc:'Permanent fire spray\naround squad'},
-{id:'machinegun',   icon:'🔫', name:'MACHINE GUN',  desc:'Permanent rapid fire\nall directions'},
-{id:'laser',        icon:'⚡', name:'LASER BEAM',   desc:'Permanent piercing\nlaser shots'},
 {id:'sawblade',     icon:'⚙️', name:'SAW BLADES',   desc:'Spinning saw blades\norbiting squad'},
 {id:'drone',        icon:'🚁', name:'DRONE',        desc:'Drone ally hunts\nnearby zombies'},
 {id:'tank',         icon:'🪖', name:'TANK',         desc:'Tank ally fights\nalongside you'},
@@ -525,7 +530,15 @@ var ALL_UPGRADES=[
 {id:'doublefire',   icon:'🔁', name:'DOUBLE FIRE',  desc:'Halve all fire\ncooldowns forever'},
 {id:'bigbullets',   icon:'🔵', name:'BIG BULLETS',  desc:'Bullets deal\n3x damage'},
 ];
-function pick3(){var pool=ALL_UPGRADES.slice(),res=[];for(var i=0;i<3&&pool.length;i++){var idx=Math.floor(Math.random()*pool.length);res.push(pool[idx]);pool.splice(idx,1);}return res;}
+// pick3: always 1 random weapon + 2 random non-weapon upgrades, shuffled
+function pick3(){
+var weapIdx=Math.floor(Math.random()*ALL_WEAPONS.length);
+var weap=ALL_WEAPONS[weapIdx];
+var pool=ALL_UPGRADES.slice(),res=[weap];
+for(var i=0;i<2&&pool.length;i++){var idx=Math.floor(Math.random()*pool.length);res.push(pool[idx]);pool.splice(idx,1);}
+res.sort(function(){return Math.random()-0.5;});
+return res;
+}
 
 // DRAW HELPERS
 function rr(x,y,w,h,r){r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();}
@@ -585,6 +598,7 @@ function drawZombieAt(z){
 var sx=z.x-G.camX,sy=z.y-G.camY;
 var sz=z.king?44:z.med?26:18;
 if(sx<-sz*3||sx>VW+sz*3||sy<-sz*3||sy>VH+sz*3)return;
+if(!z.visible)return;
 var scale=z.king?3.0:z.med?1.5:1.0;
 var bob=Math.sin(z.animT*8)*2;
 ctx.save();ctx.translate(sx,sy+bob);ctx.scale(scale,scale);
@@ -692,6 +706,7 @@ squadX:WW/2,squadY:WH/2,
 soldiers:[],fireTimers:[],shieldHits:0,
 bullets:[],zombies:[],pickups:[],particles:[],floats:[],allies:[],sawBlades:[],
 activePowerups:[],
+activeWeapon:'shotgun',
 score:0,cash:0,totalCash:0,
 wave:1,waveTime:0,gameTime:0,
 // Continuous zombie spawner: starts at 1 every 10s, doubles each 10s
@@ -765,7 +780,7 @@ if(r<acc){chosenTier=ti2;break;}
 hp=Math.round(chosenTier*10*(1+g.wave*0.1));
 }
 speed=entry.king?(28+g.wave*2):(42+g.wave*4+Math.random()*12);
-g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:entry.king,med:false,flash:0,animT:Math.random()*Math.PI*2});
+g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:entry.king,med:false,flash:0,animT:Math.random()*Math.PI*2,visible:false});
 }
 
 function killZombie(g,idx){
@@ -810,7 +825,7 @@ else if(edge===1){bx=Math.random()*WW;by=WH+50;}
 else if(edge===2){bx=-50;by=Math.random()*WH;}
 else{bx=WW+50;by=Math.random()*WH;}
 var hp=80+g.wave*40;
-g.zombies.push({x:bx,y:by,hp:hp,maxHp:hp,speed:35+g.wave*3,king:false,med:true,flash:0,animT:Math.random()*Math.PI*2});
+g.zombies.push({x:bx,y:by,hp:hp,maxHp:hp,speed:35+g.wave*3,king:false,med:true,flash:0,animT:Math.random()*Math.PI*2,visible:false});
 sfxMedBoss();
 }
 
@@ -877,26 +892,21 @@ function hasPU(g,id){for(var i=0;i<g.activePowerups.length;i++)if(g.activePoweru
 
 function applyUpgrade(g,id){
 sfxUpgrade();
-if(id==='flamethrower')addPU(g,'flamethrower');
-else if(id==='machinegun')addPU(g,'machinegun');
-else if(id==='laser')addPU(g,'laser');
-else if(id==='multishot')addPU(g,'multishot');
-else if(id==='freeze')addPU(g,'freeze');
-else if(id==='explosion')addPU(g,'explosion');
-else if(id==='aura')addPU(g,'aura');
-else if(id==='vampire')addPU(g,'vampire');
-else if(id==='bigbullets')addPU(g,'bigbullets');
-else if(id==='doublefire'){
-addPU(g,'doublefire');
-for(var fi=0;fi<g.fireTimers.length;fi++)g.fireTimers[fi]*=0.5;
+// Weapon upgrades: replace active weapon
+if(id==='shotgun'||id==='flamethrower'||id==='machinegun'||id==='laser'){
+g.activeWeapon=id;
+for(var wi=g.activePowerups.length-1;wi>=0;wi--){
+var wid=g.activePowerups[wi].id;
+if(wid==='flamethrower'||wid==='machinegun'||wid==='laser')g.activePowerups.splice(wi,1);
 }
-else if(id==='speedboost'){addPU(g,'speedboost');}
-else if(id==='sawblade'){
-// Count existing saw blades, add one more each time
+document.getElementById('upgradeOverlay').classList.remove('show');
+g.running=true;
+return;
+}
+if(id==='sawblade'){
 var existingCount=g.sawBlades.length;
 var newAngle=(Math.PI*2/(existingCount+1))*existingCount;
 g.sawBlades.push({angle:newAngle,radius:65,life:Infinity,dmg:35});
-// Re-space all existing blades evenly
 var total=g.sawBlades.length;
 for(var sb=0;sb<total;sb++) g.sawBlades[sb].angle=(Math.PI*2/total)*sb;
 }
@@ -905,9 +915,17 @@ else if(id==='tank')spawnAlly(g,'tank');
 else if(id==='sniper')spawnAlly(g,'sniper');
 else if(id==='robot')spawnAlly(g,'robot');
 else if(id==='lightning')doLightning(g);
-else if(id==='cooldown'){for(var fi2=0;fi2<g.fireTimers.length;fi2++)g.fireTimers[fi2]*=0.5;}
+else if(id==='cooldown'){for(var fi2=0;fi2<g.fireTimers.length;fi2++)g.fireTimers[fi2]*=0.5;addPU(g,'cooldown');}
 else if(id==='extrahp'){g.soldiers.forEach(function(s){if(!s.dead){s.hp++;s.maxHp++;}});}
 else if(id==='shield'){g.shieldHits+=5;}
+else if(id==='speedboost')addPU(g,'speedboost');
+else if(id==='multishot')addPU(g,'multishot');
+else if(id==='vampire')addPU(g,'vampire');
+else if(id==='explosion')addPU(g,'explosion');
+else if(id==='freeze')addPU(g,'freeze');
+else if(id==='aura')addPU(g,'aura');
+else if(id==='doublefire'){addPU(g,'doublefire');for(var fi3=0;fi3<g.fireTimers.length;fi3++)g.fireTimers[fi3]*=0.5;}
+else if(id==='bigbullets')addPU(g,'bigbullets');
 document.getElementById('upgradeOverlay').classList.remove('show');
 g.running=true;
 }
@@ -925,20 +943,19 @@ for(var i=g.zombies.length-1;i>=0;i--){var z=g.zombies[i];var dx=z.x-g.squadX,dy
 g.flash=0.35;g.flashColor='#aaffff';spawnParts(g,g.squadX,g.squadY,'#00ffff',28);
 }
 
-// FIRING
+// FIRING — weapon determined solely by g.activeWeapon (no stacking)
 function fireSoldier(g,si){
 var s=g.soldiers[si];if(!s||s.dead)return;
-var d=soldierDir(s);
 var sx=g.squadX+s.offX,sy=g.squadY+s.offY;
-var flame=hasPU(g,'flamethrower'),mgun=hasPU(g,'machinegun'),laser=hasPU(g,'laser');
 var multi=hasPU(g,'multishot'),bigbullet=hasPU(g,'bigbullets');
 var doFreeze=hasPU(g,'freeze'),doExplode=hasPU(g,'explosion');
 var BSPD=500;
+var weap=g.activeWeapon||'shotgun';
 
-// Base yellow bullet (always fires)
-var baseCount=multi?3:1;
-for(var m=0;m<baseCount;m++){
-var sp=baseCount>1?(Math.random()-0.5)*0.22:0;
+if(weap==='shotgun'){
+var pellets=multi?5:3;
+for(var p=0;p<pellets;p++){
+var sp=(p-(pellets-1)/2)*0.18;
 var a=s.angle+sp;
 g.bullets.push({x:sx,y:sy,dx:Math.cos(a)*BSPD,dy:Math.sin(a)*BSPD,
 dmg:bigbullet?30:10,life:1.6,laser:false,flame:false,mgun:false,
@@ -946,28 +963,26 @@ freeze:doFreeze,explode:doExplode});
 }
 sfxShoot();
 
-// Machine gun upgrade: ALSO fires pink burst on top
-if(mgun){
-for(var mg=0;mg<4;mg++){
-var mgsp=(Math.random()-0.5)*0.4,mga=s.angle+mgsp;
+} else if(weap==='machinegun'){
+var mgcount=multi?6:4;
+for(var mg=0;mg<mgcount;mg++){
+var mgsp=(Math.random()-0.5)*0.35,mga=s.angle+mgsp;
 g.bullets.push({x:sx,y:sy,dx:Math.cos(mga)*BSPD*1.2,dy:Math.sin(mga)*BSPD*1.2,
 dmg:bigbullet?20:6,life:1.4,laser:false,flame:false,mgun:true,
 freeze:doFreeze,explode:doExplode});
 }
-}
+sfxShoot();
 
-// Flamethrower upgrade: ALSO fires flame spray
-if(flame){
-for(var f=0;f<3;f++){
-var fsp=(Math.random()-0.5)*0.6,fa=s.angle+fsp;
+} else if(weap==='flamethrower'){
+var fcount=multi?5:3;
+for(var f=0;f<fcount;f++){
+var fsp=(Math.random()-0.5)*0.65,fa=s.angle+fsp;
 g.bullets.push({x:sx,y:sy,dx:Math.cos(fa)*BSPD*0.7,dy:Math.sin(fa)*BSPD*0.7,
 dmg:8,life:0.38,laser:false,flame:true,mgun:false,freeze:false,explode:doExplode});
 }
 sfxFlame();
-}
 
-// Laser upgrade: ALSO fires piercing beam
-if(laser){
+} else if(weap==='laser'){
 var lcount=multi?3:1;
 for(var lm=0;lm<lcount;lm++){
 var lsp=(lm-Math.floor(lcount/2))*0.18,la=s.angle+lsp;
@@ -983,15 +998,31 @@ function applyMagnet(g){sfxMagnet();for(var i=0;i<g.pickups.length;i++){var p=g.
 function applyKillAll(g){sfxKillAll();for(var i=g.zombies.length-1;i>=0;i--)killZombie(g,i);g.flash=0.55;g.flashColor='#ff8800';addFloat(g,g.squadX,g.squadY,'KILL ALL!','#ff8800');}
 
 function advanceWave(g){
-g.wave++;g.waveTime=0;g.subWave=1;g.kingsActive=false;g.kingCount=0;g.oneShotMode=false;
-g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.trickleTimer=0;
-g.medBossTimer=60;
-g.groundTheme=(g.groundTheme+1)%THEMES.length;g.groundCanvas=null;
-buildWorldObjects(g.groundTheme);
+var keepScore=g.score+1000*(g.wave-1);
+var nextWave=g.wave+1;
+var nextTheme=(g.groundTheme+1)%THEMES.length;
+g.camX=WW/2-VW/2;g.camY=WH/2-VH/2;
+g.squadX=WW/2;g.squadY=WH/2;
+g.soldiers=[];g.fireTimers=[];g.shieldHits=0;
+g.bullets=[];g.zombies=[];g.pickups=[];g.particles=[];g.floats=[];g.allies=[];g.sawBlades=[];
+g.activePowerups=[];
+g.activeWeapon='shotgun';
+g.cash=0;g.totalCash=0;
+g.wave=nextWave;g.waveTime=0;g.gameTime=0;
+g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.subWave=1;
+g.kingsActive=false;g.kingCount=0;
+g.oneShotMode=(nextWave===1);
+g.groundTheme=nextTheme;g.groundCanvas=null;
 g.flash=0.7;g.flashColor='#ffffff';
-showBanner('WAVE '+g.wave+'\n'+THEMES[g.groundTheme%THEMES.length].name);
-g.score+=1000*(g.wave-1);sfxWave();
-
+g.pickupSpawnT=0;g.medBossTimer=60;g.pendingChestLoot=0;
+g.thunderTimer=8+Math.random()*12;g.propSpawnTimer=20;
+g.running=true;g.gameOver=false;
+g.score=keepScore;
+cashTierIdx=0;
+initSoldiers(g);
+buildWorldObjects(nextTheme);
+showBanner('WAVE '+nextWave+'\n'+THEMES[nextTheme%THEMES.length].name);
+sfxWave();
 }
 
 function showBanner(txt){
@@ -1010,7 +1041,9 @@ lastTime=now;
 // Aura: damage nearby zombies constantly
 if(hasPU(G,'aura')){
 for(var ai2=G.zombies.length-1;ai2>=0;ai2--){
-var az=G.zombies[ai2];var adx=az.x-G.squadX,ady=az.y-G.squadY;
+var az=G.zombies[ai2];
+if(!az.visible)continue;
+var adx=az.x-G.squadX,ady=az.y-G.squadY;
 if(Math.sqrt(adx*adx+ady*ady)<80){az.hp-=20*dt;az.flash=0.05;if(az.hp<=0)killZombie(G,ai2);}
 }
 }
@@ -1097,11 +1130,13 @@ spawnFromQ(G,entry);
 G.pickupSpawnT-=dt;
 if(G.pickupSpawnT<=0){if(G.pickups.length<55)spawnPickupAt(G,undefined,undefined,undefined);G.pickupSpawnT=1.8+Math.random()*2.2;}
 
-// Fire timers
+// Fire timers — rate based on active weapon
 for(var fi=0;fi<G.soldiers.length;fi++){
 if(G.soldiers[fi].dead)continue;
-var rate=hasPU(G,'machinegun')?0.1:hasPU(G,'flamethrower')?0.06:3.0;
+var weap=G.activeWeapon||'shotgun';
+var rate=weap==='machinegun'?0.1:weap==='flamethrower'?0.08:weap==='laser'?0.55:1.2;
 if(hasPU(G,'doublefire'))rate*=0.5;
+if(hasPU(G,'cooldown'))rate*=0.5;
 G.fireTimers[fi]-=dt;
 if(G.fireTimers[fi]<=0){fireSoldier(G,fi);G.fireTimers[fi]=rate+Math.random()*0.05;}
 }
@@ -1113,6 +1148,7 @@ b.x+=b.dx*dt;b.y+=b.dy*dt;b.life-=dt;
 if(b.life<=0||b.x<0||b.x>WW||b.y<0||b.y>WH){G.bullets.splice(bi,1);continue;}
 for(var zi=G.zombies.length-1;zi>=0;zi--){
 var z=G.zombies[zi];
+if(!z.visible)continue;
 var bdx=b.x-z.x,bdy=b.y-z.y;
 var bR=z.king?52:z.med?30:20;
 if(bdx*bdx+bdy*bdy<bR*bR){
@@ -1145,6 +1181,12 @@ if(b.flame)igniteSomethingAt(b.x,b.y);
 for(var zi2=G.zombies.length-1;zi2>=0;zi2--){
 var z2=G.zombies[zi2];
 z2.animT+=dt;if(z2.flash>0)z2.flash-=dt*5;
+// Update visibility: become visible once 10% onto screen from any edge
+if(!z2.visible){
+var zsx=z2.x-G.camX,zsy=z2.y-G.camY;
+var thX=VW*0.10,thY=VH*0.10;
+if(zsx>thX&&zsx<VW-thX&&zsy>thY&&zsy<VH-thY)z2.visible=true;
+}
 var zdx=G.squadX-z2.x,zdy=G.squadY-z2.y,zd=Math.sqrt(zdx*zdx+zdy*zdy);
 // If zombie is attracted to a fire, steer toward it instead of squad
 if(z2.fireTarget){
@@ -1157,7 +1199,7 @@ z2.x+=ftdx/ftd*fireSpd*dt;z2.y+=ftdy/ftd*fireSpd*dt;
 }
 } else if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
 var cR=z2.king?44:z2.med?28:18;
-if(zd<cR){
+if(zd<cR&&z2.visible){
 if(G.shieldHits>0){G.shieldHits--;G.flash=0.2;G.flashColor='#4444ff';G.zombies.splice(zi2,1);continue;}
 var alive=[];for(var si2=0;si2<G.soldiers.length;si2++)if(!G.soldiers[si2].dead)alive.push(G.soldiers[si2]);
 if(alive.length>0){var hit=alive[Math.floor(Math.random()*alive.length)];hit.hp--;hit.flash=0.3;sfxHurt();if(hit.hp<=0){hit.dead=true;spawnParts(G,G.squadX+hit.offX,G.squadY+hit.offY,'#ff4444',14);}}
@@ -1194,7 +1236,7 @@ for(var sbi=G.sawBlades.length-1;sbi>=0;sbi--){
 var sb=G.sawBlades[sbi];sb.life-=dt;sb.angle+=4*dt;
 if(sb.life<=0){G.sawBlades.splice(sbi,1);continue;}
 var sbx=G.squadX+Math.cos(sb.angle)*sb.radius,sby=G.squadY+Math.sin(sb.angle)*sb.radius;
-for(var zi3=G.zombies.length-1;zi3>=0;zi3--){var z3=G.zombies[zi3];var sd=sbx-z3.x,sdd=sby-z3.y;var sR=z3.king?44:16;if(sd*sd+sdd*sdd<sR*sR){z3.hp-=sb.dmg*dt*4;z3.flash=0.1;if(z3.hp<=0)killZombie(G,zi3);}}
+for(var zi3=G.zombies.length-1;zi3>=0;zi3--){var z3=G.zombies[zi3];if(!z3.visible)continue;var sd=sbx-z3.x,sdd=sby-z3.y;var sR=z3.king?44:16;if(sd*sd+sdd*sdd<sR*sR){z3.hp-=sb.dmg*dt*4;z3.flash=0.1;if(z3.hp<=0)killZombie(G,zi3);}}
 }
 
 // Allies — tank/robot/drone follow squad; sniper is stationary
@@ -1213,7 +1255,7 @@ ally.fireTimer-=dt;
 if(ally.fireTimer<=0){
 ally.fireTimer=ally.fireRate;
 var near=null,nearD=9999;
-for(var zi4=0;zi4<G.zombies.length;zi4++){var z4=G.zombies[zi4];var adx=z4.x-ally.x,ady=z4.y-ally.y,ad=Math.sqrt(adx*adx+ady*ady);if(ad<nearD){nearD=ad;near=z4;}}
+for(var zi4=0;zi4<G.zombies.length;zi4++){var z4=G.zombies[zi4];if(!z4.visible)continue;var adx=z4.x-ally.x,ady=z4.y-ally.y,ad=Math.sqrt(adx*adx+ady*ady);if(ad<nearD){nearD=ad;near=z4;}}
 if(near){var adx2=near.x-ally.x,ady2=near.y-ally.y,aL=Math.sqrt(adx2*adx2+ady2*ady2)||1;var admg=ally.type==='tank'?60:ally.type==='sniper'?150:25;G.bullets.push({x:ally.x,y:ally.y,dx:adx2/aL*520,dy:ady2/aL*520,dmg:admg,life:3,laser:ally.type==='sniper',flame:false,freeze:false,explode:false});sfxShoot();}
 }
 }
@@ -1404,7 +1446,7 @@ ctx.save();ctx.translate(ssx,ssy);ctx.globalAlpha=0.5;
 ctx.fillStyle='#888';ctx.fillRect(-6,-8,12,16);ctx.fillStyle='#aaa';ctx.fillRect(-2,-14,4,8);
 ctx.restore();continue;
 }
-var wid=hasPU(G,'flamethrower')?'flamethrower':hasPU(G,'machinegun')?'machinegun':hasPU(G,'laser')?'laser':'default';
+var wid=G.activeWeapon||'shotgun';
 drawSoldierAt(swx,swy,s,s.flash>0,wid);
 if(s.flash>0)s.flash-=0.016;
 }
@@ -1481,7 +1523,15 @@ mx.strokeStyle='rgba(255,180,0,0.4)';mx.lineWidth=1;mx.strokeRect(G.camX*sx,G.ca
 
 function drawPUBar(){
 var bar=document.getElementById('puBar');bar.innerHTML='';
-var iconMap={flamethrower:'🔥',machinegun:'🔫',laser:'⚡',multishot:'🎆',freeze:'❄️',explosion:'💥',aura:'✨',vampire:'🩸',bigbullets:'🔵',doublefire:'🔁',speedboost:'💨'};
+// Show active weapon first
+var weapIcons={shotgun:'🟡',flamethrower:'🔥',machinegun:'🔫',laser:'⚡'};
+var weapNames={shotgun:'SHOTGUN',flamethrower:'FLAMER',machinegun:'MGUN',laser:'LASER'};
+var wid=G.activeWeapon||'shotgun';
+var wd=document.createElement('div');wd.className='pp';
+wd.style.borderColor='rgba(255,220,50,0.9)';wd.style.color='#ffe050';
+wd.textContent=(weapIcons[wid]||'🟡')+' '+(weapNames[wid]||'SHOTGUN');
+bar.appendChild(wd);
+var iconMap={sawblade:'⚙️',drone:'🚁',tank:'🪖',sniper:'🎯',robot:'🤖',multishot:'🎆',freeze:'❄️',explosion:'💥',aura:'✨',vampire:'🩸',bigbullets:'🔵',doublefire:'🔁',speedboost:'💨',cooldown:'⏱️'};
 G.activePowerups.forEach(function(pu){
 var d=document.createElement('div');d.className='pp';
 var ic=iconMap[pu.id]||'✨';
@@ -1527,7 +1577,13 @@ ytPlayer=new YT.Player('ytPlayerContainer',{height:'200',width:'200',
 playerVars:{autoplay:0,controls:0,loop:1},
 events:{onReady:function(e){e.target.setVolume(Math.round(musicVolume*100));if(ytPendingPlay){ytPendingPlay=false;ytStartMusic();}}}});}
 function ytStartMusic(){
-if(ytPlayer&&ytPlayer.unMute){
+if(ytPlayer&&ytPlayer.loadVideoById){
+var url=document.getElementById('ytInput').value.trim()||DEFAULT_YT;
+var info=ytExtract(url);
+if(info){
+if(info.type==='playlist'){ytPlayer.loadPlaylist({list:info.id,listType:'playlist',index:0});}
+else{ytPlayer.loadVideoById(info.id);}
+}
 ytPlayer.unMute();ytPlayer.setVolume(Math.round(musicVolume*100));ytPlayer.playVideo();
 document.getElementById('musicStatus').textContent='Playing';
 } else { ytPendingPlay=true; }
