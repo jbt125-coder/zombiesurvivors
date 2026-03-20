@@ -707,6 +707,8 @@ soldiers:[],fireTimers:[],shieldHits:0,
 bullets:[],zombies:[],pickups:[],particles:[],floats:[],allies:[],sawBlades:[],
 activePowerups:[],
 activeWeapon:'shotgun',
+prevWeapon:'shotgun',
+tempWeaponTimer:0,
 score:0,cash:0,totalCash:0,
 wave:1,waveTime:0,gameTime:0,
 // Continuous zombie spawner: starts at 1 every 10s, doubles each 10s
@@ -895,6 +897,8 @@ sfxUpgrade();
 // Weapon upgrades: replace active weapon
 if(id==='shotgun'||id==='flamethrower'||id==='machinegun'||id==='laser'){
 g.activeWeapon=id;
+g.prevWeapon=id;
+g.tempWeaponTimer=0;
 for(var wi=g.activePowerups.length-1;wi>=0;wi--){
 var wid=g.activePowerups[wi].id;
 if(wid==='flamethrower'||wid==='machinegun'||wid==='laser')g.activePowerups.splice(wi,1);
@@ -1007,6 +1011,8 @@ g.soldiers=[];g.fireTimers=[];g.shieldHits=0;
 g.bullets=[];g.zombies=[];g.pickups=[];g.particles=[];g.floats=[];g.allies=[];g.sawBlades=[];
 g.activePowerups=[];
 g.activeWeapon='shotgun';
+g.prevWeapon='shotgun';
+g.tempWeaponTimer=0;
 g.cash=0;g.totalCash=0;
 g.wave=nextWave;g.waveTime=0;g.gameTime=0;
 g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.subWave=1;
@@ -1221,14 +1227,19 @@ if(pd<32){
 pk.collected=true;sfxPickup();
 if(pk.type==='coin'||pk.type==='gem'||pk.type==='gold'){G.cash+=pk.value;G.totalCash+=pk.value;G.score+=pk.value;addFloat(G,pk.x,pk.y,'+$'+pk.value,'#ffd700');checkCash(G);}
 else if(pk.type==='food'){var wd=G.soldiers.filter(function(s){return !s.dead&&s.hp<s.maxHp;});if(wd.length)wd[0].hp=Math.min(wd[0].hp+1,wd[0].maxHp);addFloat(G,pk.x,pk.y,'+HP','#44ff88');}
-else if(pk.type==='flame')addPU(G,'flamethrower',15);
-else if(pk.type==='mgun')addPU(G,'machinegun',15);
-else if(pk.type==='laser')addPU(G,'laser',15);
+else if(pk.type==='flame'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='flamethrower';G.tempWeaponTimer=15;}
+else if(pk.type==='mgun'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='machinegun';G.tempWeaponTimer=15;}
+else if(pk.type==='laser'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='laser';G.tempWeaponTimer=15;}
 else if(pk.type==='magnet')applyMagnet(G);
 else if(pk.type==='killall')applyKillAll(G);
 }
 }
 
+// Temp weapon timer — revert to permanent weapon when expired
+if(G.tempWeaponTimer>0){
+G.tempWeaponTimer-=dt;
+if(G.tempWeaponTimer<=0){G.activeWeapon=G.prevWeapon||'shotgun';G.tempWeaponTimer=0;}
+}
 // Powerups are permanent — no timer decrement needed
 
 // Saw blades
@@ -1528,8 +1539,13 @@ var weapIcons={shotgun:'🟡',flamethrower:'🔥',machinegun:'🔫',laser:'⚡'}
 var weapNames={shotgun:'SHOTGUN',flamethrower:'FLAMER',machinegun:'MGUN',laser:'LASER'};
 var wid=G.activeWeapon||'shotgun';
 var wd=document.createElement('div');wd.className='pp';
+if(G.tempWeaponTimer>0){
+wd.style.borderColor='rgba(255,100,255,0.9)';wd.style.color='#ff88ff';
+wd.textContent=(weapIcons[wid]||'🟡')+' '+(weapNames[wid]||'SHOTGUN')+' '+Math.ceil(G.tempWeaponTimer)+'s';
+} else {
 wd.style.borderColor='rgba(255,220,50,0.9)';wd.style.color='#ffe050';
 wd.textContent=(weapIcons[wid]||'🟡')+' '+(weapNames[wid]||'SHOTGUN');
+}
 bar.appendChild(wd);
 var iconMap={sawblade:'⚙️',drone:'🚁',tank:'🪖',sniper:'🎯',robot:'🤖',multishot:'🎆',freeze:'❄️',explosion:'💥',aura:'✨',vampire:'🩸',bigbullets:'🔵',doublefire:'🔁',speedboost:'💨',cooldown:'⏱️'};
 G.activePowerups.forEach(function(pu){
