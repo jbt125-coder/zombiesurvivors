@@ -549,6 +549,7 @@ var ALL_UPGRADES=[
 {id:'aura',         icon:'✨', name:'DAMAGE AURA',  desc:'Constant damage\nto nearby zombies'},
 {id:'doublefire',   icon:'🔁', name:'DOUBLE FIRE',  desc:'Halve all fire\ncooldowns forever'},
 {id:'bigbullets',   icon:'🔵', name:'BIG BULLETS',  desc:'Bullets deal\n3x damage'},
+{id:'healall',      icon:'💊', name:'HEAL ALL',     desc:'Restore all soldiers\nto full HP'},
 ];
 // pick3: always 1 random weapon (never pistol) + 2 random non-weapon upgrades, shuffled
 // Wave 1 (still on pistol): always offers shotgun as the weapon choice
@@ -767,6 +768,9 @@ poisonPatches:[],
 supplyDrop:null,
 zombieFrenzy:0,
 heatWave:null,heatWaveDone:false,
+toxicFog:null,toxicFogDone:false,
+blizzard:null,blizzardDone:false,blizzardParticles:[],
+quicksandSurge:null,quicksandSurgeDone:false,
 wave10BossRushDone:false,
 waveEndPending:false,
 wave:1,waveTime:0,gameTime:0,
@@ -1010,6 +1014,7 @@ else if(id==='freeze')addPU(g,'freeze');
 else if(id==='aura'){if(g.auraLevel<4)g.auraLevel++;}
 else if(id==='doublefire'){addPU(g,'doublefire');for(var fi3=0;fi3<g.fireTimers.length;fi3++)g.fireTimers[fi3]*=0.5;}
 else if(id==='bigbullets')addPU(g,'bigbullets');
+else if(id==='healall'){g.soldiers.forEach(function(s){if(!s.dead){s.hp=s.maxHp;}});addFloat(g,g.squadX,g.squadY,'HEALED!','#44ff44');}
 document.getElementById('upgradeOverlay').classList.remove('show');
 g.running=true;
 }
@@ -1094,7 +1099,15 @@ var nextWave=g.wave+1;
 var nextTheme=(g.groundTheme+1)%THEMES.length;
 g.camX=WW/2-VW/2;g.camY=WH/2-VH/2;
 g.squadX=WW/2;g.squadY=WH/2;
-g.soldiers=[];g.fireTimers=[];g.shieldHits=0;
+// Carry living soldiers forward; dead ones are lost permanently
+var survivingSoldiers=g.soldiers.filter(function(s){return !s.dead;});
+survivingSoldiers.forEach(function(s){s.hp=s.maxHp;s.flash=0;});
+g.soldiers=survivingSoldiers;
+g.fireTimers=survivingSoldiers.map(function(_,i){return i*0.38;});
+recalcSoldierAngles(g);
+// Safety: if somehow all soldiers died before wave end, give one back
+if(g.soldiers.length===0)addSoldier(g);
+g.shieldHits=0;
 g.bullets=[];g.zombies=[];g.pickups=[];g.particles=[];g.floats=[];g.allies=[];g.sawBlades=[];
 g.activePowerups=[];
 g.activeWeapon='pistol';
@@ -1106,6 +1119,9 @@ g.poisonPatches=[];
 g.supplyDrop=null;
 g.zombieFrenzy=0;
 g.heatWave=null;g.heatWaveDone=false;
+g.toxicFog=null;g.toxicFogDone=false;
+g.blizzard=null;g.blizzardDone=false;g.blizzardParticles=[];
+g.quicksandSurge=null;g.quicksandSurgeDone=false;
 g.waveEndPending=false;
 g.cash=0;g.totalCash=0;
 g.wave=nextWave;g.waveTime=0;g.gameTime=0;
@@ -1154,8 +1170,16 @@ az.hp-=auraDmg*dt;az.flash=0.05;if(az.hp<=0)killZombie(G,ai2);
 }
 }
 
-// Squad speed with speedboost
-var squadSpd=(hasPU(G,'speedboost')?252:180)*(G.squadSlow>0?0.4:1);
+// Squad speed with speedboost, blizzard, and quicksand
+var inQuicksand=false;
+if(G.quicksandSurge){
+for(var qzi=0;qzi<G.quicksandSurge.zones.length;qzi++){
+var qz=G.quicksandSurge.zones[qzi];
+var qzdx=G.squadX-qz.x,qzdy=G.squadY-qz.y;
+if(Math.sqrt(qzdx*qzdx+qzdy*qzdy)<qz.r){inQuicksand=true;break;}
+}
+}
+var squadSpd=(hasPU(G,'speedboost')?252:180)*(G.squadSlow>0?0.4:1)*(G.blizzard?0.7:1)*(inQuicksand?0.35:1);
 
 // Move squad
 if(jsActive){
@@ -1263,6 +1287,80 @@ G.heatWave.timer-=dt;
 if(G.heatWave.timer<=0){G.heatWave=null;addFloat(G,G.squadX,G.squadY,'HEAT WAVE OVER','#ffcc44');}
 }
 }
+// WAVE 3 — Rainforest: Toxic Fog (one-time event at 90s, 25s duration)
+if(G.wave===3){
+if(G.waveTime>=90&&!G.toxicFogDone&&!G.toxicFog){
+G.toxicFog={timer:25};G.toxicFogDone=true;
+showBanner('WAVE 3\nTOXIC FOG! Poison fills the air!');
+addFloat(G,G.squadX,G.squadY,'☠ TOXIC FOG!','#44ff44');
+// Flood area around squad with poison patches
+for(var tf=0;tf<14;tf++){
+var tfx=G.squadX+(Math.random()-0.5)*800,tfy=G.squadY+(Math.random()-0.5)*800;
+G.poisonPatches.push({x:tfx,y:tfy,r:75,dmg:4,life:25,fog:true});
+}
+}
+if(G.toxicFog){
+G.toxicFog.timer-=dt;
+if(G.toxicFog.timer<=0){
+G.toxicFog=null;
+// Remove fog patches
+G.poisonPatches=G.poisonPatches.filter(function(p){return !p.fog;});
+addFloat(G,G.squadX,G.squadY,'FOG CLEARED! +$400','#88ff88');
+G.cash+=400;G.totalCash+=400;
+}
+}
+}
+
+// WAVE 4 — Snowstorm: Blizzard (one-time event at 90s, 25s duration, snow particles, movement slow)
+if(G.wave===4){
+if(G.waveTime>=90&&!G.blizzardDone&&!G.blizzard){
+G.blizzard={timer:25};G.blizzardDone=true;
+showBanner('WAVE 4\nBLIZZARD! Movement slowed 30%!');
+addFloat(G,G.squadX,G.squadY,'❄ BLIZZARD!','#aaddff');
+// Seed initial snow particles
+for(var bp=0;bp<80;bp++){
+G.blizzardParticles.push({x:Math.random()*VW,y:Math.random()*VH,spd:60+Math.random()*80,drift:Math.random()*30-15,r:1+Math.random()*2});
+}
+}
+if(G.blizzard){
+G.blizzard.timer-=dt;
+// Spawn new flakes at top edge
+if(Math.random()<0.6)G.blizzardParticles.push({x:Math.random()*VW,y:-5,spd:60+Math.random()*80,drift:Math.random()*30-15,r:1+Math.random()*2});
+// Move flakes
+for(var bi=G.blizzardParticles.length-1;bi>=0;bi--){
+var flake=G.blizzardParticles[bi];
+flake.y+=flake.spd*dt;flake.x+=flake.drift*dt;
+if(flake.y>VH+10||flake.x<-20||flake.x>VW+20)G.blizzardParticles.splice(bi,1);
+}
+if(G.blizzard.timer<=0){
+G.blizzard=null;G.blizzardParticles=[];
+addFloat(G,G.squadX,G.squadY,'BLIZZARD OVER! +$400','#aaddff');
+G.cash+=400;G.totalCash+=400;
+}
+}
+}
+
+// WAVE 5 — Swamp: Quicksand Surge (one-time event at 90s, 25s duration, slow zones)
+if(G.wave===5){
+if(G.waveTime>=90&&!G.quicksandSurgeDone&&!G.quicksandSurge){
+var qzones=[];
+for(var qs=0;qs<6;qs++){
+qzones.push({x:G.squadX+(Math.random()-0.5)*700,y:G.squadY+(Math.random()-0.5)*700,r:90});
+}
+G.quicksandSurge={timer:25,zones:qzones};G.quicksandSurgeDone=true;
+showBanner('WAVE 5\nQUICKSAND SURGE! Watch your step!');
+addFloat(G,G.squadX,G.squadY,'🟤 QUICKSAND!','#c8a050');
+}
+if(G.quicksandSurge){
+G.quicksandSurge.timer-=dt;
+if(G.quicksandSurge.timer<=0){
+G.quicksandSurge=null;
+addFloat(G,G.squadX,G.squadY,'QUICKSAND GONE! +$400','#c8a050');
+G.cash+=400;G.totalCash+=400;
+}
+}
+}
+
 if(G.supplyDrop){
 var sd=G.supplyDrop;
 if(sd.state==='incoming'){sd.timer-=dt;if(sd.timer<=0)sd.state='landed';}
@@ -1375,6 +1473,9 @@ if(!b.laser){G.bullets.splice(bi,1);break;}
 if(b.flame)igniteSomethingAt(b.x,b.y);
 }
 
+// Global blizzard movement multiplier (wave 4 mini-challenge)
+var blizzMult=G.blizzard?0.7:1;
+
 // Zombies
 for(var zi2=G.zombies.length-1;zi2>=0;zi2--){
 var z2=G.zombies[zi2];
@@ -1403,7 +1504,7 @@ z2.burrowActive=false;z2.burrowTimer=8+Math.random()*6;
 // Zigzag angle offset
 z2.zigAngle=(z2.zigAngle||0)+dt*2.5;
 var zza=Math.atan2(zdy,zdx)+Math.sin(z2.zigAngle)*0.6;
-if(!z2.burrowActive&&zd>0){z2.x+=Math.cos(zza)*z2.speed*dt;z2.y+=Math.sin(zza)*z2.speed*dt;}
+if(!z2.burrowActive&&zd>0){z2.x+=Math.cos(zza)*z2.speed*blizzMult*dt;z2.y+=Math.sin(zza)*z2.speed*blizzMult*dt;}
 } else if(kt==='snowstorm'){
 // Periodic freeze pulse slows squad
 z2.freezePulseTimer=(z2.freezePulseTimer||12)-dt;
@@ -1412,7 +1513,7 @@ G.squadSlow=3;z2.freezePulseTimer=12;
 addFloat(G,z2.x,z2.y,'FREEZE PULSE','#aaddff');
 G.flash=0.2;G.flashColor='#aaddff';
 }
-if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='swamp'){
 // Slow regeneration + drop poison patches while moving
 z2.swampRegenTimer=(z2.swampRegenTimer||3)-dt;
@@ -1422,7 +1523,7 @@ if(z2.poisonDropTimer<=0){
 G.poisonPatches.push({x:z2.x,y:z2.y,r:45,dmg:6,life:8});
 z2.poisonDropTimer=4+Math.random()*2;
 }
-if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='rainforest'){
 // Periodically summons extra zombies
 z2.rainforestSummonTimer=(z2.rainforestSummonTimer||20)-dt;
@@ -1433,7 +1534,7 @@ G.spawnQueue.push({x:rsx,y:rsy,king:false,delay:rs*0.1});
 }
 z2.rainforestSummonTimer=20;addFloat(G,z2.x,z2.y,'SUMMON!','#44ff44');
 }
-if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='city'){
 // City King: charges faster below 50% HP, occasionally dashes directly at player
 z2.cityDashTimer=(z2.cityDashTimer||6)-dt;
@@ -1459,7 +1560,7 @@ spawnParts(G,lzx,lzy,'#dd00ff',12);
 addFloat(G,lzx,lzy,'⚡BOLT!','#dd00ff');
 G.flash=0.15;G.flashColor='#dd00ff';
 }
-if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='volcanic'){
 // Volcanic King: drops lava pools (orange poison patches) while moving; enrages below 30% HP
 z2.lavaDropTimer=(z2.lavaDropTimer||2)-dt;
@@ -1471,7 +1572,7 @@ var volSpeedMult=(z2.hp/z2.maxHp<0.3)?2.5:1.0;
 if(zd>0){z2.x+=zdx/zd*z2.speed*volSpeedMult*dt;z2.y+=zdy/zd*z2.speed*volSpeedMult*dt;}
 } else {
 // Default (grassland + others): straight charge
-if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 }
 } else {
 // If zombie is attracted to a fire, steer toward it instead of squad
@@ -1481,9 +1582,9 @@ if(ftd<20)z2.fireTarget=null;
 else{
 // Sprint toward fire at ~3x normal speed
 var fireSpd=Math.max(z2.speed*3,200);
-z2.x+=ftdx/ftd*fireSpd*dt;z2.y+=ftdy/ftd*fireSpd*dt;
+z2.x+=ftdx/ftd*fireSpd*blizzMult*dt;z2.y+=ftdy/ftd*fireSpd*blizzMult*dt;
 }
-} else if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+} else if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 }
 var cR=z2.king?44:z2.med?28:18;
 if(zd<cR&&z2.visible){
@@ -1788,6 +1889,25 @@ ctx.beginPath();ctx.arc(sSx,sSy,32,0,Math.PI*2);ctx.stroke();
 ctx.restore();
 }
 
+// Quicksand zones (wave 5 surge) — drawn before zombies so they appear on the ground
+if(G.quicksandSurge){
+for(var qdi=0;qdi<G.quicksandSurge.zones.length;qdi++){
+var qzd=G.quicksandSurge.zones[qdi];
+var qsx=qzd.x-G.camX,qsy=qzd.y-G.camY;
+ctx.save();
+// Outer quicksand ring
+ctx.beginPath();ctx.arc(qsx,qsy,qzd.r,0,Math.PI*2);
+ctx.fillStyle='rgba(139,100,20,0.35)';ctx.fill();
+// Inner churning pattern
+ctx.beginPath();ctx.arc(qsx,qsy,qzd.r*0.6,0,Math.PI*2);
+ctx.fillStyle='rgba(180,130,40,0.25)';ctx.fill();
+// Label
+ctx.fillStyle='rgba(200,160,60,0.8)';ctx.textAlign='center';ctx.font='bold 10px Arial';
+ctx.fillText('QUICKSAND',qsx,qsy);
+ctx.restore();
+}
+}
+
 // Zombies
 for(var zi=0;zi<G.zombies.length;zi++)drawZombieAt(G.zombies[zi]);
 
@@ -1882,6 +2002,36 @@ var phColor=ph2==='panic'?'#ff4444':ph2==='escalate'?'#ffaa00':'#44ff88';
 ctx.fillStyle=phColor;ctx.shadowColor=phColor;ctx.shadowBlur=2;ctx.textAlign='left';
 ctx.font='bold 9px Arial Black,Arial,sans-serif';
 ctx.fillText(ph2.toUpperCase(),pad+10,pad+barH-6);ctx.shadowBlur=0;
+// Blizzard snow particle overlay (wave 4 mini-challenge)
+if(G.blizzard&&G.blizzardParticles.length){
+ctx.save();
+for(var bpi=0;bpi<G.blizzardParticles.length;bpi++){
+var flk=G.blizzardParticles[bpi];
+ctx.globalAlpha=0.7+Math.random()*0.3;
+ctx.fillStyle='#ddf0ff';
+ctx.beginPath();ctx.arc(flk.x,flk.y,flk.r,0,Math.PI*2);ctx.fill();
+}
+ctx.globalAlpha=1;ctx.restore();
+// Blizzard HUD indicator
+ctx.save();ctx.fillStyle='rgba(170,210,255,0.85)';ctx.shadowColor='#aaddff';ctx.shadowBlur=6;
+ctx.textAlign='center';ctx.font='bold 11px Arial Black,Arial,sans-serif';
+ctx.fillText('❄ BLIZZARD — Movement -30% — '+Math.ceil(G.blizzard.timer)+'s',VW/2,pad+barH+34);
+ctx.restore();
+}
+// Quicksand indicator (wave 5)
+if(G.quicksandSurge){
+ctx.save();ctx.fillStyle='rgba(200,160,60,0.85)';ctx.textAlign='center';
+ctx.font='bold 11px Arial Black,Arial,sans-serif';
+ctx.fillText('🟤 QUICKSAND SURGE — '+Math.ceil(G.quicksandSurge.timer)+'s',VW/2,pad+barH+34);
+ctx.restore();
+}
+// Toxic fog indicator (wave 3)
+if(G.toxicFog){
+ctx.save();ctx.fillStyle='rgba(100,220,100,0.85)';ctx.textAlign='center';
+ctx.font='bold 11px Arial Black,Arial,sans-serif';
+ctx.fillText('☠ TOXIC FOG — '+Math.ceil(G.toxicFog.timer)+'s',VW/2,pad+barH+34);
+ctx.restore();
+}
 // Wave end pending — kill the king indicator
 if(G.waveEndPending){
 ctx.save();
