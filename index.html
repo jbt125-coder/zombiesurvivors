@@ -631,13 +631,23 @@ var bob=Math.sin(z.animT*8)*2;
 ctx.save();ctx.translate(sx,sy+bob);ctx.scale(scale,scale);
 
 // Color scheme per type
-var bc,hc;
-if(z.king){bc='#8B0000';hc='#b22222';}
+var bc,hc,kingGlow='#ff0000';
+if(z.king){
+var kt2=z.kingType||'grassland';
+if(kt2==='desert'){bc='#8B5A00';hc='#cc8800';kingGlow='#ffaa00';}
+else if(kt2==='rainforest'){bc='#0a4a0a';hc='#00aa22';kingGlow='#00ff44';}
+else if(kt2==='snowstorm'){bc='#1a3a5a';hc='#6699cc';kingGlow='#aaddff';}
+else if(kt2==='swamp'){bc='#1a3300';hc='#336600';kingGlow='#88ff00';}
+else if(kt2==='city'){bc='#222233';hc='#555577';kingGlow='#8888ff';}
+else if(kt2==='thunder'){bc='#2a0044';hc='#9900cc';kingGlow='#dd00ff';}
+else if(kt2==='volcanic'){bc='#3a0000';hc='#cc2200';kingGlow='#ff4400';}
+else{bc='#8B0000';hc='#b22222';kingGlow='#ff0000';} // grassland default
+}
 else if(z.med){bc='#6a0080';hc='#cc44ff';} // purple body, bright purple head
 else{bc='#2d5a27';hc='#5a9952';}
 
 if(z.flash>0){ctx.shadowColor='#ffffff';ctx.shadowBlur=14;}
-else if(z.king){ctx.shadowColor='#ff0000';ctx.shadowBlur=20;}
+else if(z.king){ctx.shadowColor=kingGlow;ctx.shadowBlur=22;}
 else if(z.med){ctx.shadowColor='#cc44ff';ctx.shadowBlur=16;}
 
 // shadow
@@ -677,6 +687,18 @@ var bW=28,bf=(z.hp/z.maxHp)*bW;
 ctx.fillStyle='#333';ctx.fillRect(-bW/2,-34,bW,5);
 var barCol=z.med?'#cc44ff':(z.hp/z.maxHp>0.5?'#44ff44':z.hp/z.maxHp>0.25?'#ffaa00':'#ff2222');
 ctx.fillStyle=barCol;ctx.fillRect(-bW/2,-34,Math.max(0,bf),5);
+// King type label
+if(z.king&&z.kingType){
+ctx.fillStyle=kingGlow;ctx.shadowColor=kingGlow;ctx.shadowBlur=4;
+ctx.font='bold 4px Arial Black,Arial,sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';
+ctx.fillText(z.kingType.toUpperCase(),0,-35);ctx.shadowBlur=0;
+}
+}
+// Frenzy speed streaks behind zombie
+if(!z.king&&G.zombieFrenzy>0){
+ctx.globalAlpha=0.35;ctx.strokeStyle='#ff4400';ctx.lineWidth=1;
+ctx.beginPath();ctx.moveTo(-5,8);ctx.lineTo(-12,4);ctx.moveTo(0,10);ctx.lineTo(-8,6);ctx.moveTo(5,8);ctx.lineTo(-2,4);ctx.stroke();
+ctx.globalAlpha=1;
 }
 ctx.restore();
 }
@@ -742,6 +764,8 @@ squadSlow:0,
 poisonPatches:[],
 supplyDrop:null,
 zombieFrenzy:0,
+heatWave:null,heatWaveDone:false,
+wave10BossRushDone:false,
 wave:1,waveTime:0,gameTime:0,
 spawnTick:0,
 spawnWindow:0,
@@ -1078,6 +1102,7 @@ g.squadSlow=0;
 g.poisonPatches=[];
 g.supplyDrop=null;
 g.zombieFrenzy=0;
+g.heatWave=null;g.heatWaveDone=false;
 g.cash=0;g.totalCash=0;
 g.wave=nextWave;g.waveTime=0;g.gameTime=0;
 g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.subWave=1;
@@ -1150,8 +1175,34 @@ if(G.wave===1&&G.waveTime>60)G.oneShotMode=false;
 
 // Kings activate at kingActivationTime
 var kAct=kingActivationTime(G.wave);
-if(G.waveTime>=kAct&&!G.kingsActive){G.kingsActive=true;G.kingCount=2+G.wave;sfxKing();showKingAlert();}
-if(G.kingsActive&&G.waveTime>=kAct){var mp=Math.floor((G.waveTime-kAct)/60),tgt=(2+G.wave)*Math.pow(2,mp);if(tgt>G.kingCount)G.kingCount=Math.min(tgt,60);}
+if(G.waveTime>=kAct&&!G.kingsActive){
+G.kingsActive=true;
+sfxKing();showKingAlert();
+if(G.wave>=10){
+// Wave 10+: BOSS RUSH — spawn one of each king type
+G.wave10BossRushDone=true;
+var allKingTypes=['grassland','desert','rainforest','snowstorm','swamp','city','thunder','volcanic'];
+var margin=100;
+for(var bri=0;bri<allKingTypes.length;bri++){
+var brEdge=bri%4;
+var brx,bry;
+if(brEdge===0){brx=G.camX+margin+Math.random()*(VW-margin*2);bry=G.camY-margin;}
+else if(brEdge===1){brx=G.camX+margin+Math.random()*(VW-margin*2);bry=G.camY+VH+margin;}
+else if(brEdge===2){brx=G.camX-margin;bry=G.camY+margin+Math.random()*(VH-margin*2);}
+else{brx=G.camX+VW+margin;bry=G.camY+margin+Math.random()*(VH-margin*2);}
+var brHp=Math.round(1500*(1+G.wave*0.15));
+G.zombies.push({x:brx,y:bry,hp:brHp,maxHp:brHp,speed:30+G.wave*2,king:true,kingType:allKingTypes[bri],
+med:false,flash:0,animT:Math.random()*Math.PI*2,visible:false,
+burrowTimer:0,burrowActive:false,freezePulseTimer:12,swampRegenTimer:3,
+rainforestSummonTimer:20,cityDashTimer:6,thunderCallTimer:8,lavaDropTimer:2});
+}
+G.kingCount=allKingTypes.length;
+showBanner('WAVE '+G.wave+'\nBOSS RUSH — ALL KINGS!');
+} else {
+G.kingCount=2+G.wave;
+}
+}
+if(G.kingsActive&&G.waveTime>=kAct&&G.wave<10){var mp=Math.floor((G.waveTime-kAct)/60),tgt=(2+G.wave)*Math.pow(2,mp);if(tgt>G.kingCount)G.kingCount=Math.min(tgt,60);}
 
 // Advance wave using wave duration
 if(G.waveTime>=waveDuration(G.wave))advanceWave(G);
@@ -1182,6 +1233,19 @@ G.soldiers.forEach(function(s){if(!s.dead){s.hp-=pp.dmg*dt;if(s.hp<=0)s.dead=tru
 // Supply drop state machine (wave 1 only)
 if(G.wave===1&&!G.supplyDrop&&G.waveTime>=90){
 G.supplyDrop={x:G.squadX+(Math.random()-0.5)*400,y:G.squadY+(Math.random()-0.5)*400,state:'incoming',timer:15,reward:'shotgun'};
+}
+
+// Desert Heat Wave mini-challenge (wave 2): at 60s, 50% fire rate penalty for 20s
+if(G.wave===2){
+if(G.waveTime>=60&&!G.heatWaveDone&&!G.heatWave){
+G.heatWave={timer:20};G.heatWaveDone=true;
+showBanner('WAVE 2\nHEAT WAVE! Fire rate -50% for 20s');
+addFloat(G,G.squadX,G.squadY,'☀ HEAT WAVE!','#ff8800');
+}
+if(G.heatWave){
+G.heatWave.timer-=dt;
+if(G.heatWave.timer<=0){G.heatWave=null;addFloat(G,G.squadX,G.squadY,'HEAT WAVE OVER','#ffcc44');}
+}
 }
 if(G.supplyDrop){
 var sd=G.supplyDrop;
@@ -1253,6 +1317,7 @@ var weap=G.activeWeapon||'pistol';
 var rate=weap==='pistol'?2.0:weap==='machinegun'?0.1:weap==='flamethrower'?0.08:weap==='laser'?0.6:1.5;
 if(hasPU(G,'doublefire'))rate*=0.5;
 if(hasPU(G,'cooldown'))rate*=0.5;
+if(G.heatWave)rate*=2.0; // heat wave penalty
 G.fireTimers[fi]-=dt;
 if(G.fireTimers[fi]<=0){fireSoldier(G,fi);G.fireTimers[fi]=rate+Math.random()*0.05;}
 }
@@ -1352,6 +1417,41 @@ G.spawnQueue.push({x:rsx,y:rsy,king:false,delay:rs*0.1});
 z2.rainforestSummonTimer=20;addFloat(G,z2.x,z2.y,'SUMMON!','#44ff44');
 }
 if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+} else if(kt==='city'){
+// City King: charges faster below 50% HP, occasionally dashes directly at player
+z2.cityDashTimer=(z2.cityDashTimer||6)-dt;
+var citySpeedMult=(z2.hp/z2.maxHp<0.5)?2.2:1.0;
+if(z2.cityDashTimer<=0&&zd<350){
+z2.cityDashTimer=6+Math.random()*4;
+// Short dash burst
+z2.x+=zdx/zd*150;z2.y+=zdy/zd*150;
+addFloat(G,z2.x,z2.y,'DASH!','#8888ff');
+} else if(zd>0){z2.x+=zdx/zd*z2.speed*citySpeedMult*dt;z2.y+=zdy/zd*z2.speed*citySpeedMult*dt;}
+} else if(kt==='thunder'){
+// Thunder King: calls lightning at player every 8s, electrical aura zaps nearby zombies... wait, damages players
+z2.thunderCallTimer=(z2.thunderCallTimer||8)-dt;
+if(z2.thunderCallTimer<=0){
+z2.thunderCallTimer=8+Math.random()*4;
+// Lightning strike at squad position
+var lzx=G.squadX+(Math.random()-0.5)*80,lzy=G.squadY+(Math.random()-0.5)*80;
+G.soldiers.forEach(function(s){
+if(!s.dead){var ldx=G.squadX+s.offX-lzx,ldy=G.squadY+s.offY-lzy;
+if(ldx*ldx+ldy*ldy<3600){s.hp-=1;s.flash=0.3;if(s.hp<=0)s.dead=true;}}
+});
+spawnParts(G,lzx,lzy,'#dd00ff',12);
+addFloat(G,lzx,lzy,'⚡BOLT!','#dd00ff');
+G.flash=0.15;G.flashColor='#dd00ff';
+}
+if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
+} else if(kt==='volcanic'){
+// Volcanic King: drops lava pools (orange poison patches) while moving; enrages below 30% HP
+z2.lavaDropTimer=(z2.lavaDropTimer||2)-dt;
+if(z2.lavaDropTimer<=0){
+G.poisonPatches.push({x:z2.x,y:z2.y,r:38,dmg:15,life:10,lava:true});
+z2.lavaDropTimer=2+Math.random()*1.5;
+}
+var volSpeedMult=(z2.hp/z2.maxHp<0.3)?2.5:1.0;
+if(zd>0){z2.x+=zdx/zd*z2.speed*volSpeedMult*dt;z2.y+=zdy/zd*z2.speed*volSpeedMult*dt;}
 } else {
 // Default (grassland + others): straight charge
 if(zd>0){z2.x+=zdx/zd*z2.speed*dt;z2.y+=zdy/zd*z2.speed*dt;}
@@ -1614,12 +1714,14 @@ for(var ppi=0;ppi<G.poisonPatches.length;ppi++){
 var ppatch=G.poisonPatches[ppi];
 var ppsx=ppatch.x-G.camX,ppsy=ppatch.y-G.camY;
 if(ppsx>-100&&ppsx<VW+100&&ppsy>-100&&ppsy<VH+100){
+var isLava=ppatch.lava;
+var ppc1=isLava?'#cc4400':'#44cc00',ppc2=isLava?'#ff8800':'#88ff44';
 ctx.save();ctx.globalAlpha=0.38+0.12*Math.sin(now*0.004+ppi);
-ctx.fillStyle='#44cc00';ctx.shadowColor='#44cc00';ctx.shadowBlur=12;
+ctx.fillStyle=ppc1;ctx.shadowColor=ppc1;ctx.shadowBlur=12;
 ctx.beginPath();ctx.ellipse(ppsx,ppsy,ppatch.r,ppatch.r*0.55,0,0,Math.PI*2);ctx.fill();
-ctx.shadowBlur=0;ctx.globalAlpha=0.55;ctx.fillStyle='#88ff44';
+ctx.shadowBlur=0;ctx.globalAlpha=0.55;ctx.fillStyle=ppc2;
 ctx.font='bold 10px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
-ctx.fillText('☠',ppsx,ppsy);ctx.restore();
+ctx.fillText(isLava?'🌋':'☠',ppsx,ppsy);ctx.restore();
 }
 }
 }
@@ -1745,6 +1847,17 @@ if(G.wave===1&&!G.supplyDrop&&G.waveTime<90){
 ctx.fillStyle='rgba(255,255,0,0.8)';ctx.textAlign='center';
 ctx.font='bold 10px Arial Black,Arial,sans-serif';
 ctx.fillText('📦 Supply drop in '+(Math.ceil(90-G.waveTime))+'s',VW/2,pad+barH+18+(G.oneShotMode?16:0));
+}
+// Heat wave notice (wave 2)
+if(G.wave===2&&!G.heatWaveDone&&G.waveTime<60){
+ctx.fillStyle='rgba(255,140,0,0.8)';ctx.textAlign='center';
+ctx.font='bold 10px Arial Black,Arial,sans-serif';
+ctx.fillText('☀ HEAT WAVE in '+(Math.ceil(60-G.waveTime))+'s',VW/2,pad+barH+18);
+}
+if(G.heatWave){
+ctx.fillStyle='rgba(255,100,0,0.9)';ctx.textAlign='center';
+ctx.font='bold 11px Arial Black,Arial,sans-serif';
+ctx.fillText('☀ HEAT WAVE! '+(Math.ceil(G.heatWave.timer))+'s',VW/2,pad+barH+18);
 }
 // Phase indicator
 var ph2=wavePhase(G);
