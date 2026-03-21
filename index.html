@@ -550,16 +550,18 @@ var ALL_UPGRADES=[
 {id:'doublefire',   icon:'🔁', name:'DOUBLE FIRE',  desc:'Halve all fire\ncooldowns forever'},
 {id:'bigbullets',   icon:'🔵', name:'BIG BULLETS',  desc:'Bullets deal\n3x damage'},
 ];
-/// pick3: always 1 random weapon + 2 random non-weapon upgrades, shuffled
-// Wave 1: always includes shotgun as one of the choices
+// pick3: always 1 random weapon (never pistol) + 2 random non-weapon upgrades, shuffled
+// Wave 1 (still on pistol): always offers shotgun as the weapon choice
 function pick3(){
 var weap;
 if(G&&G.wave===1&&G.activeWeapon==='pistol'){
 // Force shotgun as the weapon choice in wave 1
 weap=ALL_WEAPONS.find(function(w){return w.id==='shotgun';});
 } else {
-var weapIdx=Math.floor(Math.random()*ALL_WEAPONS.length);
-weap=ALL_WEAPONS[weapIdx];
+// Never offer pistol as an upgrade — it's the default starting weapon
+var weapPool=ALL_WEAPONS.filter(function(w){return w.id!=='pistol';});
+var weapIdx=Math.floor(Math.random()*weapPool.length);
+weap=weapPool[weapIdx];
 }
 var pool=ALL_UPGRADES.slice(),res=[weap];
 for(var i=0;i<2&&pool.length;i++){var idx=Math.floor(Math.random()*pool.length);res.push(pool[idx]);pool.splice(idx,1);}
@@ -766,6 +768,7 @@ supplyDrop:null,
 zombieFrenzy:0,
 heatWave:null,heatWaveDone:false,
 wave10BossRushDone:false,
+waveEndPending:false,
 wave:1,waveTime:0,gameTime:0,
 spawnTick:0,
 spawnWindow:0,
@@ -1103,6 +1106,7 @@ g.poisonPatches=[];
 g.supplyDrop=null;
 g.zombieFrenzy=0;
 g.heatWave=null;g.heatWaveDone=false;
+g.waveEndPending=false;
 g.cash=0;g.totalCash=0;
 g.wave=nextWave;g.waveTime=0;g.gameTime=0;
 g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.subWave=1;
@@ -1204,8 +1208,20 @@ G.kingCount=2+G.wave;
 }
 if(G.kingsActive&&G.waveTime>=kAct&&G.wave<10){var mp=Math.floor((G.waveTime-kAct)/60),tgt=(2+G.wave)*Math.pow(2,mp);if(tgt>G.kingCount)G.kingCount=Math.min(tgt,60);}
 
-// Advance wave using wave duration
-if(G.waveTime>=waveDuration(G.wave))advanceWave(G);
+// Advance wave: timer must expire AND all kings must be dead
+if(G.waveTime>=waveDuration(G.wave)){
+// Mark end pending — stop normal spawns
+if(!G.waveEndPending){
+G.waveEndPending=true;
+addFloat(G,G.squadX,G.squadY,'DEFEAT THE KINGS!','#ffd700');
+}
+// Only advance once no king zombies remain
+var kingsAlive=false;
+for(var ki=0;ki<G.zombies.length;ki++){if(G.zombies[ki].king){kingsAlive=true;break;}}
+// If kings were never activated (shouldn't happen, but guard) advance freely
+if(!kingsAlive&&G.kingsActive)advanceWave(G);
+else if(!G.kingsActive)advanceWave(G);
+}
 
 // Medium boss interval scales with wave
 G.medBossTimer-=dt;
@@ -1278,9 +1294,10 @@ updateWorldFire(G,dt,lastTime);
 for(var ui=1;ui<SOLDIER_UNLOCK.length;ui++)if(G.soldiers.length<ui+1&&G.score>=SOLDIER_UNLOCK[ui])addSoldier(G);
 
 // ZOMBIE SPAWNER — every 1s, capped ramp to prevent crash
+// Stop spawning new normals once wave end is pending (waiting for king kills)
 var MAX_ZOMBIES=200;
 G.spawnTick+=dt;
-if(G.spawnTick>=1){
+if(G.spawnTick>=1&&!G.waveEndPending){
 G.spawnTick-=1;
 var currentTotal=G.zombies.length+G.spawnQueue.length;
 if(currentTotal<MAX_ZOMBIES){
@@ -1865,6 +1882,14 @@ var phColor=ph2==='panic'?'#ff4444':ph2==='escalate'?'#ffaa00':'#44ff88';
 ctx.fillStyle=phColor;ctx.shadowColor=phColor;ctx.shadowBlur=2;ctx.textAlign='left';
 ctx.font='bold 9px Arial Black,Arial,sans-serif';
 ctx.fillText(ph2.toUpperCase(),pad+10,pad+barH-6);ctx.shadowBlur=0;
+// Wave end pending — kill the king indicator
+if(G.waveEndPending){
+ctx.save();
+ctx.fillStyle='rgba(255,215,0,0.9)';ctx.shadowColor='#ffd700';ctx.shadowBlur=8;
+ctx.textAlign='center';ctx.font='bold 11px Arial Black,Arial,sans-serif';
+ctx.fillText('👑 KILL THE KING TO ADVANCE!',VW/2,pad+barH+34);
+ctx.restore();
+}
 // Squad slow indicator
 if(G.squadSlow>0){
 ctx.fillStyle='#aaddff';ctx.textAlign='center';
