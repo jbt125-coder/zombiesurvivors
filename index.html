@@ -371,7 +371,7 @@ var dx=other.x-obj.x,dy=other.y-obj.y;
 if(Math.sqrt(dx*dx+dy*dy)<80&&Math.random()<0.004){other.burning=true;other.lit=true;other.burnTimer=other.burnLife;}
 }
 for(var zi=g.zombies.length-1;zi>=0;zi--){
-var z=g.zombies[zi];if(!z.visible)continue;var zdx=z.x-obj.x,zdy=z.y-obj.y;
+var z=g.zombies[zi];if(z.invincible)continue;var zdx=z.x-obj.x,zdy=z.y-obj.y;
 if(Math.sqrt(zdx*zdx+zdy*zdy)<obj.r*2.5){z.hp-=8*dt;z.flash=0.1;if(z.hp<=0)killZombie(g,zi);}
 }
 for(var zi2=0;zi2<g.zombies.length;zi2++){
@@ -384,7 +384,7 @@ for(var pi=0;pi<WORLD_PROPS.length;pi++){
 var p=WORLD_PROPS[pi];if(!p.burning||p.dead)continue;
 p.burnTimer-=dt;
 for(var zi3=g.zombies.length-1;zi3>=0;zi3--){
-var z3=g.zombies[zi3];if(!z3.visible)continue;var pdx=z3.x-p.x,pdy=z3.y-p.y;
+var z3=g.zombies[zi3];if(z3.invincible)continue;var pdx=z3.x-p.x,pdy=z3.y-p.y;
 if(Math.sqrt(pdx*pdx+pdy*pdy)<(p.type==='car'?35:20)){z3.hp-=12*dt;z3.flash=0.1;if(z3.hp<=0)killZombie(g,zi3);}
 }
 for(var zi4=0;zi4<g.zombies.length;zi4++){
@@ -397,7 +397,7 @@ if(p.type==='car'){
 spawnParts(g,p.x,p.y,'#ff6600',30);spawnParts(g,p.x,p.y,'#ffff00',20);
 addFloat(g,p.x,p.y,'BOOM!','#ff8800');
 for(var zi5=g.zombies.length-1;zi5>=0;zi5--){
-var z5=g.zombies[zi5];if(!z5.visible)continue;var ex=z5.x-p.x,ey=z5.y-p.y;
+var z5=g.zombies[zi5];if(z5.invincible)continue;var ex=z5.x-p.x,ey=z5.y-p.y;
 if(Math.sqrt(ex*ex+ey*ey)<120){z5.hp-=150;z5.flash=0.2;if(z5.hp<=0)killZombie(g,zi5);}
 }
 g.flash=0.35;g.flashColor='#ff8800';sfxKillAll();
@@ -628,10 +628,11 @@ function drawZombieAt(z){
 var sx=z.x-G.camX,sy=z.y-G.camY;
 var sz=z.king?44:z.med?26:18;
 if(sx<-sz*3||sx>VW+sz*3||sy<-sz*3||sy>VH+sz*3)return;
-if(!z.visible)return;
 var scale=z.king?3.0:z.med?1.5:1.0;
 var bob=Math.sin(z.animT*8)*2;
-ctx.save();ctx.translate(sx,sy+bob);ctx.scale(scale,scale);
+ctx.save();
+if(z.invincible)ctx.globalAlpha=0.55;
+ctx.translate(sx,sy+bob);ctx.scale(scale,scale);
 
 // Color scheme per type
 var bc,hc,kingGlow='#ff0000';
@@ -789,6 +790,15 @@ pendingChestLoot:0,
 thunderTimer:8+Math.random()*12,
 propSpawnTimer:20,
 running:true,gameOver:false,
+droneDeliveryDone:false,
+droneDelivery:null,
+waveHadPowerup:false,
+missionType:(function(){var t=['build_snipers','drone_warehouse','robot_code','fix_tank'];return t[Math.floor(Math.random()*4)];}()),
+missionWave:(2+Math.floor(Math.random()*4)),
+missionPhase:'pending',
+missionData:null,
+missionTowerCount:0,
+missionHasItem:false,
 };
 }
 
@@ -806,7 +816,7 @@ sfxSoldier();
 
 // CONTINUOUS ZOMBIE SPAWNER — spawns from screen edges, never on top of player
 function spawnZombieBatch(g,count){
-var margin=60,minDist=280;
+var margin=120,minDist=280;
 for(var i=0;i<count;i++){
 var wx,wy,attempts=0;
 // Place on one of the 4 screen edges (world-space edges of viewport + some buffer)
@@ -837,12 +847,12 @@ var kingTypes=['grassland','desert','rainforest','snowstorm','swamp','city','thu
 var kt=kingTypes[g.groundTheme%kingTypes.length];
 hp=Math.round(1000*(1+g.wave*0.2));
 speed=28+g.wave*2;
-g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:true,kingType:kt,med:false,flash:0,animT:Math.random()*Math.PI*2,visible:false,
+g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:true,kingType:kt,med:false,flash:0,animT:Math.random()*Math.PI*2,invincible:true,
 burrowTimer:0,burrowActive:false,freezePulseTimer:12,swampRegenTimer:3,rainforestSummonTimer:20});
 } else if(g.oneShotMode){
 hp=1;
 speed=42+g.wave*4+Math.random()*12;
-g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:false,med:false,flash:0,animT:Math.random()*Math.PI*2,visible:false});
+g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:false,med:false,flash:0,animT:Math.random()*Math.PI*2,invincible:true});
 } else {
 var totalWeight=0;
 for(var ti=1;ti<=soldierCount;ti++) totalWeight+=(soldierCount+1-ti);
@@ -854,7 +864,7 @@ if(r<acc){chosenTier=ti2;break;}
 hp=Math.round(chosenTier*10*(1+g.wave*0.1)*phHpMult);
 speed=42+g.wave*4+Math.random()*12;
 if(g.zombieFrenzy>0)speed*=1.5;
-g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:false,med:false,flash:0,animT:Math.random()*Math.PI*2,visible:false});
+g.zombies.push({x:entry.x,y:entry.y,hp:hp,maxHp:hp,speed:speed,king:false,med:false,flash:0,animT:Math.random()*Math.PI*2,invincible:true});
 }
 }
 
@@ -906,12 +916,12 @@ checkCash(g);
 function spawnMedBoss(g){
 var edge=Math.floor(Math.random()*4);
 var bx,by;
-if(edge===0){bx=Math.random()*WW;by=-50;}
-else if(edge===1){bx=Math.random()*WW;by=WH+50;}
-else if(edge===2){bx=-50;by=Math.random()*WH;}
-else{bx=WW+50;by=Math.random()*WH;}
+if(edge===0){bx=Math.random()*WW;by=g.camY-120;}
+else if(edge===1){bx=Math.random()*WW;by=g.camY+VH+120;}
+else if(edge===2){bx=g.camX-120;by=Math.random()*WH;}
+else{bx=g.camX+VW+120;by=Math.random()*WH;}
 var hp=80+g.wave*40;
-g.zombies.push({x:bx,y:by,hp:hp,maxHp:hp,speed:35+g.wave*3,king:false,med:true,flash:0,animT:Math.random()*Math.PI*2,visible:false});
+g.zombies.push({x:bx,y:by,hp:hp,maxHp:hp,speed:35+g.wave*3,king:false,med:true,flash:0,animT:Math.random()*Math.PI*2,invincible:true});
 sfxMedBoss();
 }
 
@@ -978,6 +988,7 @@ function hasPU(g,id){for(var i=0;i<g.activePowerups.length;i++)if(g.activePoweru
 
 function applyUpgrade(g,id){
 sfxUpgrade();
+g.waveHadPowerup=true;
 // Weapon upgrades: replace active weapon
 if(id==='pistol'||id==='shotgun'||id==='flamethrower'||id==='machinegun'||id==='laser'){
 g.activeWeapon=id;
@@ -1123,6 +1134,7 @@ g.toxicFog=null;g.toxicFogDone=false;
 g.blizzard=null;g.blizzardDone=false;g.blizzardParticles=[];
 g.quicksandSurge=null;g.quicksandSurgeDone=false;
 g.waveEndPending=false;
+g.droneDeliveryDone=false;g.droneDelivery=null;g.waveHadPowerup=false;
 g.cash=0;g.totalCash=0;
 g.wave=nextWave;g.waveTime=0;g.gameTime=0;
 g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.subWave=1;
@@ -1161,7 +1173,7 @@ var auraDmg=[0,20,35,55,120][G.auraLevel]||20;
 var instantKill=(G.auraLevel>=4);
 for(var ai2=G.zombies.length-1;ai2>=0;ai2--){
 var az=G.zombies[ai2];
-if(!az.visible)continue;
+if(az.invincible)continue;
 var adx=az.x-G.squadX,ady=az.y-G.squadY;
 if(Math.sqrt(adx*adx+ady*ady)<auraR){
 if(instantKill&&!az.boss&&!az.king){killZombie(G,ai2);continue;}
@@ -1220,7 +1232,7 @@ else if(brEdge===2){brx=G.camX-margin;bry=G.camY+margin+Math.random()*(VH-margin
 else{brx=G.camX+VW+margin;bry=G.camY+margin+Math.random()*(VH-margin*2);}
 var brHp=Math.round(1500*(1+G.wave*0.15));
 G.zombies.push({x:brx,y:bry,hp:brHp,maxHp:brHp,speed:30+G.wave*2,king:true,kingType:allKingTypes[bri],
-med:false,flash:0,animT:Math.random()*Math.PI*2,visible:false,
+med:false,flash:0,animT:Math.random()*Math.PI*2,invincible:true,
 burrowTimer:0,burrowActive:false,freezePulseTimer:12,swampRegenTimer:3,
 rainforestSummonTimer:20,cityDashTimer:6,thunderCallTimer:8,lavaDropTimer:2});
 }
@@ -1361,6 +1373,67 @@ G.cash+=400;G.totalCash+=400;
 }
 }
 
+// MISSION SYSTEM — one random mission per game run, on assigned wave
+if(G.missionType&&G.missionWave===G.wave&&G.missionPhase!=='complete'){
+if(G.missionPhase==='pending'&&G.waveTime>=40){
+// Generate random locations far from squad start
+var mBaseX=WW*0.15+Math.random()*WW*0.7,mBaseY=WH*0.15+Math.random()*WH*0.7;
+var mLoc1X=WW*0.1+Math.random()*WW*0.8,mLoc1Y=WH*0.1+Math.random()*WH*0.8;
+var mLoc2X=WW*0.1+Math.random()*WW*0.8,mLoc2Y=WH*0.1+Math.random()*WH*0.8;
+var mLoc3X=WW*0.1+Math.random()*WW*0.8,mLoc3Y=WH*0.1+Math.random()*WH*0.8;
+G.missionData={baseX:mBaseX,baseY:mBaseY,loc1X:mLoc1X,loc1Y:mLoc1Y,
+loc2X:mLoc2X,loc2Y:mLoc2Y,loc3X:mLoc3X,loc3Y:mLoc3Y,
+tower1Built:false,tower2Built:false,tower3Built:false};
+G.missionPhase='active';G.missionTowerCount=0;G.missionHasItem=false;
+var mNames={build_snipers:'BUILD 3 SNIPER TOWERS',drone_warehouse:'FIND DRONE WAREHOUSE',robot_code:'FIND ROBOT WAREHOUSE',fix_tank:'FIND & FIX THE TANK'};
+showBanner('MISSION START!\n'+mNames[G.missionType]);
+addFloat(G,G.squadX,G.squadY,'MISSION ACTIVE!','#ffdd00');
+}
+if(G.missionPhase==='active'&&G.missionData){
+var md=G.missionData;
+var mDist=function(lx,ly){return Math.sqrt((G.squadX-lx)*(G.squadX-lx)+(G.squadY-ly)*(G.squadY-ly));};
+if(G.missionType==='build_snipers'){
+if(!md.tower1Built&&mDist(md.loc1X,md.loc1Y)<90){md.tower1Built=true;G.missionTowerCount++;spawnAlly(G,'sniper');addFloat(G,md.loc1X,md.loc1Y,'TOWER BUILT! ('+G.missionTowerCount+'/3)','#ffdd00');}
+if(!md.tower2Built&&mDist(md.loc2X,md.loc2Y)<90){md.tower2Built=true;G.missionTowerCount++;spawnAlly(G,'sniper');addFloat(G,md.loc2X,md.loc2Y,'TOWER BUILT! ('+G.missionTowerCount+'/3)','#ffdd00');}
+if(!md.tower3Built&&mDist(md.loc3X,md.loc3Y)<90){md.tower3Built=true;G.missionTowerCount++;spawnAlly(G,'sniper');addFloat(G,md.loc3X,md.loc3Y,'TOWER BUILT! ('+G.missionTowerCount+'/3)','#ffdd00');}
+if(G.missionTowerCount>=3){G.missionPhase='complete';G.cash+=600;G.totalCash+=600;showBanner('MISSION COMPLETE!\n3 Towers + $600');addFloat(G,G.squadX,G.squadY,'ALL TOWERS BUILT! +$600','#ffdd00');}
+} else if(G.missionType==='drone_warehouse'){
+if(mDist(md.loc1X,md.loc1Y)<90){
+G.missionPhase='complete';spawnAlly(G,'drone');spawnAlly(G,'drone');
+G.cash+=400;G.totalCash+=400;
+showBanner('WAREHOUSE FOUND!\n2 Drones + $400');addFloat(G,G.squadX,G.squadY,'DRONES DEPLOYED! +$400','#44ffcc');
+}
+} else if(G.missionType==='robot_code'){
+if(mDist(md.loc1X,md.loc1Y)<90){
+G.missionHasItem=true;G.missionPhase='step2';
+addFloat(G,G.squadX,G.squadY,'CODE RETRIEVED! GO TO BASE','#44ffaa');
+showBanner('ROBOT CODE FOUND!\nDeliver to Base!');
+}
+} else if(G.missionType==='fix_tank'){
+if(mDist(md.loc1X,md.loc1Y)<90){
+G.missionHasItem=true;G.missionPhase='step2';
+addFloat(G,G.squadX,G.squadY,'TANK FIXED! BRING TO BASE','#88ff44');
+showBanner('TANK REPAIRED!\nBring it to Base!');
+}
+}
+}
+if(G.missionPhase==='step2'&&G.missionData){
+var md2=G.missionData;
+var bdx2=G.squadX-md2.baseX,bdy2=G.squadY-md2.baseY;
+if(Math.sqrt(bdx2*bdx2+bdy2*bdy2)<90){
+if(G.missionType==='robot_code'){
+G.missionPhase='complete';spawnAlly(G,'robot');
+G.cash+=500;G.totalCash+=500;
+showBanner('MISSION COMPLETE!\nRobot Online + $500');addFloat(G,G.squadX,G.squadY,'ROBOT DEPLOYED! +$500','#44ff44');
+} else if(G.missionType==='fix_tank'){
+G.missionPhase='complete';spawnAlly(G,'tank');
+G.cash+=500;G.totalCash+=500;
+showBanner('MISSION COMPLETE!\nTank Online + $500');addFloat(G,G.squadX,G.squadY,'TANK DEPLOYED! +$500','#88ff44');
+}
+}
+}
+}
+
 if(G.supplyDrop){
 var sd=G.supplyDrop;
 if(sd.state==='incoming'){sd.timer-=dt;if(sd.timer<=0)sd.state='landed';}
@@ -1371,6 +1444,37 @@ applyUpgrade(G,'shotgun');
 addFloat(G,sd.x,sd.y,'SUPPLY DROP!','#ffff00');
 G.supplyDrop=null;
 }
+}
+}
+
+// Drone flamethrower delivery: triggers at 2min mark if player had no power-up this wave
+if(!G.droneDeliveryDone&&!G.waveHadPowerup&&G.waveTime>=120){
+G.droneDeliveryDone=true;
+// Drone approaches from closest horizontal screen edge
+var ddFromLeft=G.squadX-G.camX<VW/2;
+G.droneDelivery={x:ddFromLeft?G.camX-80:G.camX+VW+80,y:G.squadY,state:'incoming'};
+showBanner('DRONE INCOMING!\nFLAMETHROWER DELIVERY');
+addFloat(G,G.squadX,G.squadY,'DRONE INBOUND!','#ff8800');
+}
+if(G.droneDelivery){
+var dd=G.droneDelivery;
+if(dd.state==='incoming'){
+dd.y+=(G.squadY-dd.y)*Math.min(1,dt*2);
+var dddx=G.squadX-dd.x;
+dd.x+=dddx*Math.min(1,dt*2.5);
+if(Math.abs(dddx)<55){
+dd.state='delivered';dd.departTimer=1.5;
+if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;
+G.activeWeapon='flamethrower';G.tempWeaponTimer=15;
+G.waveHadPowerup=true;
+addFloat(G,G.squadX,G.squadY,'FLAMETHROWER! 15s','#ff6600');
+G.flash=0.3;G.flashColor='#ff6600';sfxUpgrade();
+}
+} else if(dd.state==='delivered'){
+dd.departTimer-=dt;
+// Drone flies away after delivering
+dd.x+=350*dt*(dd.x<G.squadX?-1:1);
+if(dd.departTimer<=0)G.droneDelivery=null;
 }
 }
 
@@ -1444,10 +1548,10 @@ b.x+=b.dx*dt;b.y+=b.dy*dt;b.life-=dt;
 if(b.life<=0||b.x<0||b.x>WW||b.y<0||b.y>WH){G.bullets.splice(bi,1);continue;}
 for(var zi=G.zombies.length-1;zi>=0;zi--){
 var z=G.zombies[zi];
-if(!z.visible)continue;
 var bdx=b.x-z.x,bdy=b.y-z.y;
 var bR=z.king?52:z.med?30:20;
 if(bdx*bdx+bdy*bdy<bR*bR){
+if(z.invincible){z.flash=0.12;if(!b.laser){G.bullets.splice(bi,1);}break;}
 // All zombies take bullet damage normally; hit radius covers full body
 z.hp-=b.dmg;z.flash=0.12;
 if(b.freeze)z.speed=Math.max(10,z.speed*0.5);
@@ -1480,15 +1584,13 @@ var blizzMult=G.blizzard?0.7:1;
 for(var zi2=G.zombies.length-1;zi2>=0;zi2--){
 var z2=G.zombies[zi2];
 z2.animT+=dt;if(z2.flash>0)z2.flash-=dt*5;
-// Update visibility: become visible once 10% onto screen from any edge
-if(!z2.visible){
+// Update invincibility: invincible while outside 10% inner zone of screen
 var zsx=z2.x-G.camX,zsy=z2.y-G.camY;
 var thX=VW*0.10,thY=VH*0.10;
-if(zsx>thX&&zsx<VW-thX&&zsy>thY&&zsy<VH-thY)z2.visible=true;
-}
+z2.invincible=(zsx<thX||zsx>VW-thX||zsy<thY||zsy>VH-thY);
 var zdx=G.squadX-z2.x,zdy=G.squadY-z2.y,zd=Math.sqrt(zdx*zdx+zdy*zdy);
 // King special behaviors
-if(z2.king&&z2.visible){
+if(z2.king){
 var kt=z2.kingType||'grassland';
 if(kt==='desert'){
 // Zigzag movement + periodic burrow
@@ -1587,7 +1689,7 @@ z2.x+=ftdx/ftd*fireSpd*blizzMult*dt;z2.y+=ftdy/ftd*fireSpd*blizzMult*dt;
 } else if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 }
 var cR=z2.king?44:z2.med?28:18;
-if(zd<cR&&z2.visible){
+if(zd<cR&&!z2.invincible){
 if(G.shieldHits>0){G.shieldHits--;G.flash=0.2;G.flashColor='#4444ff';G.zombies.splice(zi2,1);continue;}
 var alive=[];for(var si2=0;si2<G.soldiers.length;si2++)if(!G.soldiers[si2].dead)alive.push(G.soldiers[si2]);
 if(alive.length>0){var hit=alive[Math.floor(Math.random()*alive.length)];hit.hp--;hit.flash=0.3;sfxHurt();if(hit.hp<=0){hit.dead=true;spawnParts(G,G.squadX+hit.offX,G.squadY+hit.offY,'#ff4444',14);}}
@@ -1609,9 +1711,9 @@ if(pd<32){
 pk.collected=true;sfxPickup();
 if(pk.type==='coin'||pk.type==='gem'||pk.type==='gold'){G.cash+=pk.value;G.totalCash+=pk.value;G.score+=pk.value;addFloat(G,pk.x,pk.y,'+$'+pk.value,'#ffd700');checkCash(G);}
 else if(pk.type==='food'){var wd=G.soldiers.filter(function(s){return !s.dead&&s.hp<s.maxHp;});if(wd.length)wd[0].hp=Math.min(wd[0].hp+1,wd[0].maxHp);addFloat(G,pk.x,pk.y,'+HP','#44ff88');}
-else if(pk.type==='flame'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='flamethrower';G.tempWeaponTimer=15;}
-else if(pk.type==='mgun'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='machinegun';G.tempWeaponTimer=15;}
-else if(pk.type==='laser'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='laser';G.tempWeaponTimer=15;}
+else if(pk.type==='flame'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='flamethrower';G.tempWeaponTimer=15;G.waveHadPowerup=true;}
+else if(pk.type==='mgun'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='machinegun';G.tempWeaponTimer=15;G.waveHadPowerup=true;}
+else if(pk.type==='laser'){if(G.tempWeaponTimer<=0)G.prevWeapon=G.activeWeapon;G.activeWeapon='laser';G.tempWeaponTimer=15;G.waveHadPowerup=true;}
 else if(pk.type==='magnet')applyMagnet(G);
 else if(pk.type==='killall')applyKillAll(G);
 }
@@ -1629,7 +1731,7 @@ for(var sbi=G.sawBlades.length-1;sbi>=0;sbi--){
 var sb=G.sawBlades[sbi];sb.life-=dt;sb.angle+=4*dt;
 if(sb.life<=0){G.sawBlades.splice(sbi,1);continue;}
 var sbx=G.squadX+Math.cos(sb.angle)*sb.radius,sby=G.squadY+Math.sin(sb.angle)*sb.radius;
-for(var zi3=G.zombies.length-1;zi3>=0;zi3--){var z3=G.zombies[zi3];if(!z3.visible)continue;var sd=sbx-z3.x,sdd=sby-z3.y;var sR=z3.king?44:16;if(sd*sd+sdd*sdd<sR*sR){z3.hp-=sb.dmg*dt*4;z3.flash=0.1;if(z3.hp<=0)killZombie(G,zi3);}}
+for(var zi3=G.zombies.length-1;zi3>=0;zi3--){var z3=G.zombies[zi3];if(z3.invincible)continue;var sd=sbx-z3.x,sdd=sby-z3.y;var sR=z3.king?44:16;if(sd*sd+sdd*sdd<sR*sR){z3.hp-=sb.dmg*dt*4;z3.flash=0.1;if(z3.hp<=0)killZombie(G,zi3);}}
 }
 
 // Allies — tank/robot/drone follow squad; sniper is stationary
@@ -1648,7 +1750,7 @@ ally.fireTimer-=dt;
 if(ally.fireTimer<=0){
 ally.fireTimer=ally.fireRate;
 var near=null,nearD=9999;
-for(var zi4=0;zi4<G.zombies.length;zi4++){var z4=G.zombies[zi4];if(!z4.visible)continue;var adx=z4.x-ally.x,ady=z4.y-ally.y,ad=Math.sqrt(adx*adx+ady*ady);if(ad<nearD){nearD=ad;near=z4;}}
+for(var zi4=0;zi4<G.zombies.length;zi4++){var z4=G.zombies[zi4];if(z4.invincible)continue;var adx=z4.x-ally.x,ady=z4.y-ally.y,ad=Math.sqrt(adx*adx+ady*ady);if(ad<nearD){nearD=ad;near=z4;}}
 if(near){var adx2=near.x-ally.x,ady2=near.y-ally.y,aL=Math.sqrt(adx2*adx2+ady2*ady2)||1;var admg=ally.type==='tank'?60:ally.type==='sniper'?150:25;G.bullets.push({x:ally.x,y:ally.y,dx:adx2/aL*520,dy:ady2/aL*520,dmg:admg,life:3,laser:ally.type==='sniper',flame:false,freeze:false,explode:false});sfxShoot();}
 }
 }
@@ -1908,6 +2010,70 @@ ctx.restore();
 }
 }
 
+// Mission markers
+if(G.missionData&&G.missionWave===G.wave&&G.missionPhase!=='complete'){
+var md3=G.missionData;
+// Helper to draw a mission marker
+function drawMMarker(wx,wy,label,col,done){
+var msx=wx-G.camX,msy=wy-G.camY;
+ctx.save();
+ctx.globalAlpha=done?0.35:(0.75+0.25*Math.sin(now*0.006));
+ctx.strokeStyle=col;ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=14;ctx.lineWidth=2.5;
+ctx.beginPath();ctx.arc(msx,msy,28,0,Math.PI*2);ctx.stroke();
+ctx.beginPath();ctx.moveTo(msx,msy-40);ctx.lineTo(msx,msy-28);ctx.stroke();
+ctx.shadowBlur=0;
+ctx.font='bold 9px Arial Black,Arial';ctx.textAlign='center';ctx.textBaseline='middle';
+ctx.fillText(label,msx,msy);
+// Compass arrow when off-screen
+if(msx<20||msx>VW-20||msy<20||msy>VH-20){
+var ax=Math.max(30,Math.min(VW-30,msx)),ay=Math.max(30,Math.min(VH-30,msy));
+ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=8;
+ctx.font='bold 14px Arial';ctx.textAlign='center';ctx.fillText('▶',ax,ay);
+}
+ctx.restore();
+}
+if(G.missionType==='build_snipers'){
+drawMMarker(md3.loc1X,md3.loc1Y,'TOWER',md3.tower1Built?'#666':'#ffdd00',md3.tower1Built);
+drawMMarker(md3.loc2X,md3.loc2Y,'TOWER',md3.tower2Built?'#666':'#ffdd00',md3.tower2Built);
+drawMMarker(md3.loc3X,md3.loc3Y,'TOWER',md3.tower3Built?'#666':'#ffdd00',md3.tower3Built);
+} else if(G.missionType==='drone_warehouse'){
+drawMMarker(md3.loc1X,md3.loc1Y,'WAREHOUSE','#44ffcc',false);
+} else if(G.missionType==='robot_code'){
+if(G.missionPhase==='active')drawMMarker(md3.loc1X,md3.loc1Y,'WAREHOUSE','#44ffaa',false);
+drawMMarker(md3.baseX,md3.baseY,'BASE','#ffdd00',G.missionPhase!=='step2');
+} else if(G.missionType==='fix_tank'){
+if(G.missionPhase==='active')drawMMarker(md3.loc1X,md3.loc1Y,'TANK','#88ff44',false);
+drawMMarker(md3.baseX,md3.baseY,'BASE','#ffdd00',G.missionPhase!=='step2');
+}
+}
+
+// Delivery drone visual
+if(G.droneDelivery){
+var dd2=G.droneDelivery;
+var ddsx=dd2.x-G.camX,ddsy=dd2.y-G.camY;
+if(ddsx>-80&&ddsx<VW+80&&ddsy>-80&&ddsy<VH+80){
+ctx.save();ctx.translate(ddsx,ddsy);
+// Body
+ctx.fillStyle='#ff8800';ctx.strokeStyle='#ffaa44';ctx.lineWidth=2;
+ctx.beginPath();ctx.ellipse(0,0,18,10,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+// Rotors spinning
+ctx.strokeStyle='rgba(255,200,100,0.7)';ctx.lineWidth=2.5;
+var dRot=(now*0.018)%Math.PI;
+for(var pr2=0;pr2<4;pr2++){var pa2=dRot+(Math.PI/2)*pr2;ctx.beginPath();ctx.moveTo(Math.cos(pa2)*7,Math.sin(pa2)*5);ctx.lineTo(Math.cos(pa2)*22,Math.sin(pa2)*16);ctx.stroke();}
+// Delivery package below drone
+ctx.fillStyle='#ff6600';ctx.fillRect(-8,10,16,12);
+ctx.strokeStyle='#ffaa00';ctx.lineWidth=1;ctx.strokeRect(-8,10,16,12);
+ctx.fillStyle='#ffcc00';ctx.fillText('FLM',0,17);
+ctx.restore();
+// Pulsing ring when close
+var dddist=Math.sqrt((G.squadX-dd2.x)*(G.squadX-dd2.x)+(G.squadY-dd2.y)*(G.squadY-dd2.y));
+if(dddist<150){
+ctx.save();ctx.globalAlpha=0.4*(1-dddist/150);ctx.strokeStyle='#ff8800';ctx.lineWidth=2;
+ctx.beginPath();ctx.arc(ddsx,ddsy,40,0,Math.PI*2);ctx.stroke();ctx.restore();
+}
+}
+}
+
 // Zombies
 for(var zi=0;zi<G.zombies.length;zi++)drawZombieAt(G.zombies[zi]);
 
@@ -2031,6 +2197,30 @@ ctx.save();ctx.fillStyle='rgba(100,220,100,0.85)';ctx.textAlign='center';
 ctx.font='bold 11px Arial Black,Arial,sans-serif';
 ctx.fillText('☠ TOXIC FOG — '+Math.ceil(G.toxicFog.timer)+'s',VW/2,pad+barH+34);
 ctx.restore();
+}
+// Drone delivery HUD
+if(!G.droneDeliveryDone&&!G.waveHadPowerup&&G.waveTime<120){
+ctx.fillStyle='rgba(255,140,0,0.85)';ctx.textAlign='center';
+ctx.font='bold 10px Arial Black,Arial,sans-serif';
+ctx.fillText('🚁 Drone delivery in '+(Math.ceil(120-G.waveTime))+'s',VW/2,pad+barH+34+(G.blizzard||G.quicksandSurge||G.toxicFog?18:0));
+}
+if(G.droneDelivery&&G.droneDelivery.state==='incoming'){
+ctx.save();ctx.fillStyle='rgba(255,140,0,0.95)';ctx.shadowColor='#ff8800';ctx.shadowBlur=6;
+ctx.textAlign='center';ctx.font='bold 11px Arial Black,Arial,sans-serif';
+ctx.fillText('🚁 DRONE INBOUND — FLAMETHROWER!',VW/2,pad+barH+50);ctx.restore();
+}
+// Mission HUD
+if(G.missionType&&G.missionWave===G.wave&&G.missionPhase!=='complete'&&G.missionPhase!=='pending'){
+ctx.save();
+var mHudY=pad+barH+50;
+if(G.blizzard||G.quicksandSurge||G.toxicFog)mHudY+=18;
+var mLabels={build_snipers:'BUILD SNIPER TOWERS ('+G.missionTowerCount+'/3)',
+drone_warehouse:'FIND DRONE WAREHOUSE',
+robot_code:G.missionPhase==='step2'?'DELIVER CODE TO BASE':'FIND ROBOT WAREHOUSE',
+fix_tank:G.missionPhase==='step2'?'BRING TANK TO BASE':'FIND & FIX THE TANK'};
+ctx.fillStyle='rgba(255,220,0,0.92)';ctx.shadowColor='#ffdd00';ctx.shadowBlur=5;
+ctx.textAlign='center';ctx.font='bold 10px Arial Black,Arial,sans-serif';
+ctx.fillText('MISSION: '+mLabels[G.missionType],VW/2,mHudY);ctx.restore();
 }
 // Wave end pending — kill the king indicator
 if(G.waveEndPending){
