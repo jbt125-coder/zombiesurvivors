@@ -793,6 +793,8 @@ running:true,gameOver:false,
 droneDeliveryDone:false,
 droneDelivery:null,
 waveHadPowerup:false,
+challengeTimer:150,
+activeChallenge:null,
 missionType:(function(){var t=['build_snipers','drone_warehouse','robot_code','fix_tank'];return t[Math.floor(Math.random()*4)];}()),
 missionWave:(2+Math.floor(Math.random()*4)),
 missionPhase:'pending',
@@ -946,9 +948,16 @@ document.getElementById('chestOverlay').classList.add('show');
 }
 
 function spawnParts(g,wx,wy,color,cnt){
+// Only spawn particles for on-screen events; hard cap at 500
+var sx=wx-g.camX,sy=wy-g.camY;
+if(sx<-60||sx>VW+60||sy<-60||sy>VH+60)return;
+if(g.particles.length>480)g.particles.splice(0,g.particles.length-480);
 for(var i=0;i<cnt;i++){var a=Math.random()*Math.PI*2,s=1+Math.random()*3;g.particles.push({x:wx,y:wy,vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:2+Math.random()*3,color:color,life:1,decay:0.025+Math.random()*0.025});}
 }
-function addFloat(g,wx,wy,text,color){g.floats.push({x:wx,y:wy,text:text,color:color||'#fff',alpha:1,vy:-1.2});}
+function addFloat(g,wx,wy,text,color){
+if(g.floats.length>60)g.floats.splice(0,g.floats.length-60);
+g.floats.push({x:wx,y:wy,text:text,color:color||'#fff',alpha:1,vy:-1.2});
+}
 
 function spawnPickupAt(g,wx,wy,forced){
 var def=forced||randPickup();
@@ -1135,6 +1144,7 @@ g.blizzard=null;g.blizzardDone=false;g.blizzardParticles=[];
 g.quicksandSurge=null;g.quicksandSurgeDone=false;
 g.waveEndPending=false;
 g.droneDeliveryDone=false;g.droneDelivery=null;g.waveHadPowerup=false;
+g.challengeTimer=150;g.activeChallenge=null;
 g.cash=0;g.totalCash=0;
 g.wave=nextWave;g.waveTime=0;g.gameTime=0;
 g.spawnTick=0;g.spawnWindow=0;g.spawnBatch=1;g.spawnQueue=[];g.spawnQT=0;g.subWave=1;
@@ -1447,6 +1457,92 @@ G.supplyDrop=null;
 }
 }
 
+// PERIODIC CHALLENGE SYSTEM — fires every 150s on waves longer than 5 minutes
+if(waveDuration(G.wave)>300&&!G.waveEndPending){
+G.challengeTimer-=dt;
+if(G.challengeTimer<=0&&!G.activeChallenge){
+G.challengeTimer=150;
+var ctypes=['supply_cache','build_tower','drone_drop','robot_drop','tank_repair','defend_beacon'];
+var ct=ctypes[Math.floor(Math.random()*ctypes.length)];
+var safeDist=350;
+function rndMapX(){return WW*0.1+Math.random()*WW*0.8;}
+function rndMapY(){return WH*0.1+Math.random()*WH*0.8;}
+var cx1=rndMapX(),cy1=rndMapY();
+for(var _t=0;_t<8&&Math.sqrt((cx1-G.squadX)*(cx1-G.squadX)+(cy1-G.squadY)*(cy1-G.squadY))<safeDist;_t++){cx1=rndMapX();cy1=rndMapY();}
+var cx2=rndMapX(),cy2=rndMapY();
+for(var _t2=0;_t2<8&&Math.sqrt((cx2-G.squadX)*(cx2-G.squadX)+(cy2-G.squadY)*(cy2-G.squadY))<safeDist;_t2++){cx2=rndMapX();cy2=rndMapY();}
+G.activeChallenge={type:ct,phase:'active',loc1X:cx1,loc1Y:cy1,loc2X:cx2,loc2Y:cy2,
+defendTimer:0,hasItem:false,beacon:null};
+var cNames={supply_cache:'FIND SUPPLY CACHE',build_tower:'BUILD SNIPER TOWER',
+drone_drop:'FIND DRONE CRATE',robot_drop:'FIND ROBOT CRATE',
+tank_repair:'FIND & REPAIR TANK',defend_beacon:'DEFEND THE BEACON!'};
+showBanner('CHALLENGE!\n'+cNames[ct]);
+addFloat(G,G.squadX,G.squadY,'CHALLENGE: '+cNames[ct],'#ffdd00');
+// Defend beacon: mark is at a screen-side location
+if(ct==='defend_beacon')G.activeChallenge.beacon={x:G.squadX+(Math.random()-0.5)*400,y:G.squadY+(Math.random()-0.5)*400};
+}
+// Process active challenge
+if(G.activeChallenge){
+var ac=G.activeChallenge;
+var acDist=function(lx,ly){return Math.sqrt((G.squadX-lx)*(G.squadX-lx)+(G.squadY-ly)*(G.squadY-ly));};
+if(ac.type==='supply_cache'&&ac.phase==='active'){
+if(acDist(ac.loc1X,ac.loc1Y)<90){
+ac.phase='complete';
+var cReward=200+Math.floor(Math.random()*400);G.cash+=cReward;G.totalCash+=cReward;
+spawnPickupAt(G,ac.loc1X,ac.loc1Y);
+addFloat(G,ac.loc1X,ac.loc1Y,'CACHE! +$'+cReward,'#ffdd00');
+G.activeChallenge=null;
+}
+} else if(ac.type==='build_tower'&&ac.phase==='active'){
+if(acDist(ac.loc1X,ac.loc1Y)<90){
+ac.phase='complete';spawnAlly(G,'sniper');
+G.cash+=300;G.totalCash+=300;
+addFloat(G,ac.loc1X,ac.loc1Y,'SNIPER TOWER BUILT! +$300','#ffdd00');
+G.activeChallenge=null;
+}
+} else if(ac.type==='drone_drop'&&ac.phase==='active'){
+if(acDist(ac.loc1X,ac.loc1Y)<90){
+ac.phase='complete';spawnAlly(G,'drone');
+G.cash+=250;G.totalCash+=250;
+addFloat(G,ac.loc1X,ac.loc1Y,'DRONE DEPLOYED! +$250','#44ffcc');
+G.activeChallenge=null;
+}
+} else if(ac.type==='robot_drop'&&ac.phase==='active'){
+if(acDist(ac.loc1X,ac.loc1Y)<90){
+ac.phase='complete';spawnAlly(G,'robot');
+G.cash+=250;G.totalCash+=250;
+addFloat(G,ac.loc1X,ac.loc1Y,'ROBOT DEPLOYED! +$250','#44ff44');
+G.activeChallenge=null;
+}
+} else if(ac.type==='tank_repair'&&ac.phase==='active'){
+if(!ac.hasItem&&acDist(ac.loc1X,ac.loc1Y)<90){
+ac.hasItem=true;ac.phase='deliver';
+addFloat(G,ac.loc1X,ac.loc1Y,'TANK FIXED! BRING TO BASE','#88ff44');
+}
+} else if(ac.type==='tank_repair'&&ac.phase==='deliver'){
+if(acDist(ac.loc2X,ac.loc2Y)<90){
+ac.phase='complete';spawnAlly(G,'tank');
+G.cash+=400;G.totalCash+=400;
+addFloat(G,G.squadX,G.squadY,'TANK ONLINE! +$400','#88ff44');
+G.activeChallenge=null;
+}
+} else if(ac.type==='defend_beacon'&&ac.phase==='active'&&ac.beacon){
+if(acDist(ac.beacon.x,ac.beacon.y)<80){
+ac.defendTimer+=dt;
+if(ac.defendTimer>=20){
+ac.phase='complete';
+G.cash+=500;G.totalCash+=500;
+addFloat(G,ac.beacon.x,ac.beacon.y,'BEACON HELD! +$500','#ffaa00');
+G.activeChallenge=null;
+}
+} else {
+// Reset timer if player leaves beacon area
+if(ac.defendTimer>0&&acDist(ac.beacon.x,ac.beacon.y)>120)ac.defendTimer=Math.max(0,ac.defendTimer-dt*2);
+}
+}
+}
+}
+
 // Drone flamethrower delivery: triggers at 2min mark if player had no power-up this wave
 if(!G.droneDeliveryDone&&!G.waveHadPowerup&&G.waveTime>=120){
 G.droneDeliveryDone=true;
@@ -1589,19 +1685,21 @@ var zsx=z2.x-G.camX,zsy=z2.y-G.camY;
 var thX=VW*0.10,thY=VH*0.10;
 z2.invincible=(zsx<thX||zsx>VW-thX||zsy<thY||zsy>VH-thY);
 var zdx=G.squadX-z2.x,zdy=G.squadY-z2.y,zd=Math.sqrt(zdx*zdx+zdy*zdy);
-// King special behaviors
+// King special behaviors — only run specials when king is within 2x screen of camera
+var kingOnScreen=(zsx>-VW&&zsx<VW*2&&zsy>-VH&&zsy<VH*2);
 if(z2.king){
 var kt=z2.kingType||'grassland';
 if(kt==='desert'){
 // Zigzag movement + periodic burrow
+if(kingOnScreen){
 z2.burrowTimer=(z2.burrowTimer||0)-dt;
 if(z2.burrowTimer<=0&&!z2.burrowActive){
 z2.burrowActive=true;z2.burrowTimer=2;
-// Reappear near player
 z2.x=G.squadX+(Math.random()-0.5)*180;z2.y=G.squadY+(Math.random()-0.5)*180;
 addFloat(G,z2.x,z2.y,'BURROW!','#cc8800');
 } else if(z2.burrowActive&&z2.burrowTimer<=0){
 z2.burrowActive=false;z2.burrowTimer=8+Math.random()*6;
+}
 }
 // Zigzag angle offset
 z2.zigAngle=(z2.zigAngle||0)+dt*2.5;
@@ -1609,15 +1707,18 @@ var zza=Math.atan2(zdy,zdx)+Math.sin(z2.zigAngle)*0.6;
 if(!z2.burrowActive&&zd>0){z2.x+=Math.cos(zza)*z2.speed*blizzMult*dt;z2.y+=Math.sin(zza)*z2.speed*blizzMult*dt;}
 } else if(kt==='snowstorm'){
 // Periodic freeze pulse slows squad
+if(kingOnScreen){
 z2.freezePulseTimer=(z2.freezePulseTimer||12)-dt;
 if(z2.freezePulseTimer<=0&&zd<300){
 G.squadSlow=3;z2.freezePulseTimer=12;
 addFloat(G,z2.x,z2.y,'FREEZE PULSE','#aaddff');
 G.flash=0.2;G.flashColor='#aaddff';
 }
+}
 if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='swamp'){
 // Slow regeneration + drop poison patches while moving
+if(kingOnScreen){
 z2.swampRegenTimer=(z2.swampRegenTimer||3)-dt;
 if(z2.swampRegenTimer<=0){z2.hp=Math.min(z2.maxHp,z2.hp+z2.maxHp*0.02);z2.swampRegenTimer=3;}
 z2.poisonDropTimer=(z2.poisonDropTimer||4)-dt;
@@ -1625,34 +1726,42 @@ if(z2.poisonDropTimer<=0){
 G.poisonPatches.push({x:z2.x,y:z2.y,r:45,dmg:6,life:8});
 z2.poisonDropTimer=4+Math.random()*2;
 }
+}
 if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='rainforest'){
-// Periodically summons extra zombies
+// Periodically summons extra zombies — only when on screen and below zombie cap
+if(kingOnScreen){
 z2.rainforestSummonTimer=(z2.rainforestSummonTimer||20)-dt;
 if(z2.rainforestSummonTimer<=0){
+z2.rainforestSummonTimer=20;
+var curZombieTotal=G.zombies.length+G.spawnQueue.length;
+if(curZombieTotal<180){
 for(var rs=0;rs<3;rs++){
 var rsx=z2.x+(Math.random()-0.5)*150,rsy=z2.y+(Math.random()-0.5)*150;
-G.spawnQueue.push({x:rsx,y:rsy,king:false,delay:rs*0.1});
+G.spawnQueue.push({x:rsx,y:rsy,king:false,delay:rs*0.1+0.05});
 }
-z2.rainforestSummonTimer=20;addFloat(G,z2.x,z2.y,'SUMMON!','#44ff44');
+addFloat(G,z2.x,z2.y,'SUMMON!','#44ff44');
+}
+}
 }
 if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='city'){
 // City King: charges faster below 50% HP, occasionally dashes directly at player
-z2.cityDashTimer=(z2.cityDashTimer||6)-dt;
 var citySpeedMult=(z2.hp/z2.maxHp<0.5)?2.2:1.0;
+if(kingOnScreen){
+z2.cityDashTimer=(z2.cityDashTimer||6)-dt;
 if(z2.cityDashTimer<=0&&zd<350){
 z2.cityDashTimer=6+Math.random()*4;
-// Short dash burst
 z2.x+=zdx/zd*150;z2.y+=zdy/zd*150;
 addFloat(G,z2.x,z2.y,'DASH!','#8888ff');
 } else if(zd>0){z2.x+=zdx/zd*z2.speed*citySpeedMult*dt;z2.y+=zdy/zd*z2.speed*citySpeedMult*dt;}
+} else if(zd>0){z2.x+=zdx/zd*z2.speed*citySpeedMult*dt;z2.y+=zdy/zd*z2.speed*citySpeedMult*dt;}
 } else if(kt==='thunder'){
-// Thunder King: calls lightning at player every 8s, electrical aura zaps nearby zombies... wait, damages players
+// Thunder King: calls lightning at player every 8s
+if(kingOnScreen){
 z2.thunderCallTimer=(z2.thunderCallTimer||8)-dt;
 if(z2.thunderCallTimer<=0){
 z2.thunderCallTimer=8+Math.random()*4;
-// Lightning strike at squad position
 var lzx=G.squadX+(Math.random()-0.5)*80,lzy=G.squadY+(Math.random()-0.5)*80;
 G.soldiers.forEach(function(s){
 if(!s.dead){var ldx=G.squadX+s.offX-lzx,ldy=G.squadY+s.offY-lzy;
@@ -1662,13 +1771,16 @@ spawnParts(G,lzx,lzy,'#dd00ff',12);
 addFloat(G,lzx,lzy,'⚡BOLT!','#dd00ff');
 G.flash=0.15;G.flashColor='#dd00ff';
 }
+}
 if(zd>0){z2.x+=zdx/zd*z2.speed*blizzMult*dt;z2.y+=zdy/zd*z2.speed*blizzMult*dt;}
 } else if(kt==='volcanic'){
-// Volcanic King: drops lava pools (orange poison patches) while moving; enrages below 30% HP
+// Volcanic King: drops lava pools while moving; enrages below 30% HP
+if(kingOnScreen){
 z2.lavaDropTimer=(z2.lavaDropTimer||2)-dt;
 if(z2.lavaDropTimer<=0){
 G.poisonPatches.push({x:z2.x,y:z2.y,r:38,dmg:15,life:10,lava:true});
 z2.lavaDropTimer=2+Math.random()*1.5;
+}
 }
 var volSpeedMult=(z2.hp/z2.maxHp<0.3)?2.5:1.0;
 if(zd>0){z2.x+=zdx/zd*z2.speed*volSpeedMult*dt;z2.y+=zdy/zd*z2.speed*volSpeedMult*dt;}
@@ -2047,6 +2159,62 @@ drawMMarker(md3.baseX,md3.baseY,'BASE','#ffdd00',G.missionPhase!=='step2');
 }
 }
 
+// Periodic challenge markers
+if(G.activeChallenge){
+var ac2=G.activeChallenge;
+function drawCMarker(wx,wy,label,col){
+var msx2=wx-G.camX,msy2=wy-G.camY;
+ctx.save();
+ctx.globalAlpha=0.8+0.2*Math.sin(now*0.007);
+ctx.strokeStyle=col;ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=16;ctx.lineWidth=3;
+ctx.beginPath();ctx.arc(msx2,msy2,30,0,Math.PI*2);ctx.stroke();
+// X marker lines
+ctx.beginPath();ctx.moveTo(msx2-20,msy2-20);ctx.lineTo(msx2+20,msy2+20);
+ctx.moveTo(msx2+20,msy2-20);ctx.lineTo(msx2-20,msy2+20);ctx.stroke();
+ctx.shadowBlur=0;ctx.font='bold 8px Arial Black,Arial';ctx.textAlign='center';ctx.textBaseline='top';
+ctx.fillText(label,msx2,msy2+34);
+// Off-screen compass arrow
+if(msx2<20||msx2>VW-20||msy2<20||msy2>VH-20){
+var ax2=Math.max(24,Math.min(VW-24,msx2)),ay2=Math.max(24,Math.min(VH-24,msy2));
+var ar=Math.atan2(msy2-ay2,msx2-ax2);
+ctx.save();ctx.translate(ax2,ay2);ctx.rotate(ar);
+ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=8;
+ctx.beginPath();ctx.moveTo(12,0);ctx.lineTo(-6,-6);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();
+ctx.restore();
+}
+ctx.restore();
+}
+if(ac2.type==='supply_cache')drawCMarker(ac2.loc1X,ac2.loc1Y,'CACHE','#ffdd00');
+else if(ac2.type==='build_tower')drawCMarker(ac2.loc1X,ac2.loc1Y,'TOWER','#ffee44');
+else if(ac2.type==='drone_drop')drawCMarker(ac2.loc1X,ac2.loc1Y,'DRONE','#44ffcc');
+else if(ac2.type==='robot_drop')drawCMarker(ac2.loc1X,ac2.loc1Y,'ROBOT','#44ff88');
+else if(ac2.type==='tank_repair'){
+if(!ac2.hasItem)drawCMarker(ac2.loc1X,ac2.loc1Y,'TANK','#88ff44');
+drawCMarker(ac2.loc2X,ac2.loc2Y,'BASE','#ffdd00');
+} else if(ac2.type==='defend_beacon'&&ac2.beacon){
+var bsx2=ac2.beacon.x-G.camX,bsy2=ac2.beacon.y-G.camY;
+ctx.save();
+var bPct=Math.min(1,ac2.defendTimer/20);
+ctx.globalAlpha=0.85;ctx.strokeStyle='#ffaa00';ctx.fillStyle='rgba(255,170,0,0.15)';
+ctx.shadowColor='#ffaa00';ctx.shadowBlur=20;ctx.lineWidth=3;
+ctx.beginPath();ctx.arc(bsx2,bsy2,80,0,Math.PI*2);ctx.fill();ctx.stroke();
+// Progress arc
+ctx.strokeStyle='#ffffff';ctx.lineWidth=5;ctx.shadowBlur=0;
+ctx.beginPath();ctx.arc(bsx2,bsy2,80,-Math.PI/2,-Math.PI/2+Math.PI*2*bPct);ctx.stroke();
+ctx.fillStyle='#ffaa00';ctx.font='bold 10px Arial Black';ctx.textAlign='center';ctx.textBaseline='middle';
+ctx.fillText('HOLD! '+Math.ceil(20-ac2.defendTimer)+'s',bsx2,bsy2);
+// Off-screen arrow
+if(bsx2<20||bsx2>VW-20||bsy2<20||bsy2>VH-20){
+var bax=Math.max(24,Math.min(VW-24,bsx2)),bay=Math.max(24,Math.min(VH-24,bsy2));
+var bar2=Math.atan2(bsy2-bay,bsx2-bax);
+ctx.save();ctx.translate(bax,bay);ctx.rotate(bar2);
+ctx.fillStyle='#ffaa00';ctx.beginPath();ctx.moveTo(12,0);ctx.lineTo(-6,-6);ctx.lineTo(-6,6);ctx.closePath();ctx.fill();
+ctx.restore();
+}
+ctx.restore();
+}
+}
+
 // Delivery drone visual
 if(G.droneDelivery){
 var dd2=G.droneDelivery;
@@ -2196,6 +2364,19 @@ if(G.toxicFog){
 ctx.save();ctx.fillStyle='rgba(100,220,100,0.85)';ctx.textAlign='center';
 ctx.font='bold 11px Arial Black,Arial,sans-serif';
 ctx.fillText('☠ TOXIC FOG — '+Math.ceil(G.toxicFog.timer)+'s',VW/2,pad+barH+34);
+ctx.restore();
+}
+// Periodic challenge HUD
+if(G.activeChallenge&&waveDuration(G.wave)>300){
+ctx.save();
+var cHudY=pad+barH+18;
+var acNames2={supply_cache:'FIND SUPPLY CACHE',build_tower:'BUILD SNIPER TOWER',
+drone_drop:'COLLECT DRONE CRATE',robot_drop:'COLLECT ROBOT CRATE',
+tank_repair:G.activeChallenge.hasItem?'DELIVER TANK TO BASE':'FIND & FIX TANK',
+defend_beacon:'HOLD THE BEACON! '+Math.ceil(Math.max(0,20-(G.activeChallenge.defendTimer||0)))+'s'};
+ctx.fillStyle='rgba(255,220,40,0.92)';ctx.shadowColor='#ffdd00';ctx.shadowBlur=5;
+ctx.textAlign='center';ctx.font='bold 10px Arial Black,Arial,sans-serif';
+ctx.fillText('CHALLENGE: '+acNames2[G.activeChallenge.type],VW/2,cHudY);
 ctx.restore();
 }
 // Drone delivery HUD
